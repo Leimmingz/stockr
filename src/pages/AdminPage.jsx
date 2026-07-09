@@ -21,6 +21,7 @@ export default function AdminPage() {
   }
 
   async function handleRoleChange(userId, newRole) {
+    if (!['admin','editor','reader'].includes(newRole)) return // whitelist
     setUpdating(userId)
     try {
       await updateUserRole(userId, newRole)
@@ -35,11 +36,11 @@ export default function AdminPage() {
 
   async function handleDeleteUser(userId) {
     if (userId === profile?.id) { toast('Tu ne peux pas supprimer ton propre compte', 'error'); return }
-    if (!confirm('Révoquer l\'accès de cet utilisateur ?')) return
+    if (!confirm('Révoquer l\'accès ? (Le compte email reste actif — contact Supabase pour suppression totale)')) return
     const { error } = await supabase.from('profiles').delete().eq('id', userId)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     setUsers(u => u.filter(x => x.id !== userId))
-    toast('Accès révoqué', 'success')
+    toast('Accès révoqué — reconnexion bloquée', 'success')
   }
 
   function roleLabel(role) {

@@ -25,7 +25,8 @@ export async function compressAndUpload(file, bucket, path) {
 
   // Upload
   const ext  = 'jpg'
-  const name = `${path}_${Date.now()}.${ext}`
+  const safePath = path.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80)
+  const name = `${safePath}_${Date.now()}.${ext}`
   const { error } = await supabase.storage.from(bucket).upload(name, compressed, {
     upsert: true,
     contentType: 'image/jpeg',

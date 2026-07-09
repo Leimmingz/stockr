@@ -84,6 +84,7 @@ function ProjectorModal({ projector, onClose, onSave }) {
   async function handleScan(e) {
     const f = e.target.files[0]
     if (!f) return
+    if (f.size > 10 * 1024 * 1024) { toast('Fichier trop volumineux (max 10 Mo)', 'error'); return }
     setScanning(true)
     try {
       const specs = await extractSpecsFromFile(f)
@@ -103,7 +104,7 @@ function ProjectorModal({ projector, onClose, onSave }) {
     try {
       let imageUrl = projector?.image_url || null
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'projector-images', `proj_${form.name.replace(/\s/g,'_')}`)
-      const payload = { name: form.name.trim(), brand: form.brand || null, model: form.model || null, watts: +form.watts, voltage: +form.voltage || 230, power_factor: +form.power_factor || 1.0, dmx_channels: form.dmx_channels ? +form.dmx_channels : null, weight_kg: form.weight_kg ? +form.weight_kg : null, image_url: imageUrl }
+      const payload = { name: form.name.trim().slice(0,200), brand: (form.brand||'').slice(0,100)||null, model: (form.model||'').slice(0,100)||null, watts: Math.min(100000, +form.watts), voltage: Math.max(1, Math.min(1000, +form.voltage||230)), power_factor: Math.max(0, Math.min(1, +form.power_factor||1.0)), dmx_channels: form.dmx_channels ? Math.min(512, +form.dmx_channels) : null, weight_kg: form.weight_kg ? Math.min(9999, +form.weight_kg) : null, image_url: imageUrl }
       if (projector?.id) {
         await supabase.from('projectors').update(payload).eq('id', projector.id)
       } else {
@@ -135,11 +136,11 @@ function ProjectorModal({ projector, onClose, onSave }) {
         </div>
 
         <div className="form-row">
-          <div className="form-group"><label className="label">Nom *</label><input className="input" value={form.name||''} onChange={e => set('name',e.target.value)} placeholder="PAR LED 64"/></div>
-          <div className="form-group"><label className="label">Marque</label><input className="input" value={form.brand||''} onChange={e => set('brand',e.target.value)} placeholder="Chauvet"/></div>
+          <div className="form-group"><label className="label">Nom *</label><input className="input" value={form.name||''} onChange={e => set('name',e.target.value)} placeholder="PAR LED 64" maxLength={200}/></div>
+          <div className="form-group"><label className="label">Marque</label><input className="input" value={form.brand||''} onChange={e => set('brand',e.target.value)} placeholder="Chauvet" maxLength={100}/></div>
         </div>
         <div className="form-row">
-          <div className="form-group"><label className="label">Modèle</label><input className="input" value={form.model||''} onChange={e => set('model',e.target.value)} placeholder="Intimidator"/></div>
+          <div className="form-group"><label className="label">Modèle</label><input className="input" value={form.model||''} onChange={e => set('model',e.target.value)} placeholder="Intimidator" maxLength={100}/></div>
           <div className="form-group"><label className="label">Puissance (W) *</label><input className="input" type="number" min={1} value={form.watts||''} onChange={e => set('watts',e.target.value)} placeholder="150"/></div>
         </div>
         <div className="form-row">
@@ -181,23 +182,26 @@ function PowerCalculator({ projectors }) {
   function addProjector(p) {
     setItems(prev => {
       const existing = prev.find(i => i.projector.id === p.id)
-      if (existing) return prev.map(i => i.projector.id === p.id ? { ...i, qty: i.qty + 1 } : i)
+      if (existing) return prev.map(i => i.projector.id === p.id ? { ...i, qty: Math.min(999, i.qty + 1) } : i)
+      if (prev.length >= 50) { toast('Maximum 50 types de projecteurs par calcul', 'error'); return prev }
       return [...prev, { projector: p, qty: 1 }]
     })
   }
 
   function updateQty(id, qty) {
     if (+qty <= 0) { setItems(prev => prev.filter(i => i.projector.id !== id)); return }
-    setItems(prev => prev.map(i => i.projector.id === id ? { ...i, qty: +qty } : i))
+    setItems(prev => prev.map(i => i.projector.id === id ? { ...i, qty: Math.min(999, +qty) } : i))
   }
 
+  const safeV    = Math.max(1, circuitV)
+  const safeA    = Math.max(1, circuitA)
   const totalW   = items.reduce((sum, i) => sum + (i.projector.watts * i.qty), 0)
-  const totalA   = totalW / circuitV
-  const maxW     = circuitA * circuitV
-  const pct      = Math.min((totalA / circuitA) * 100, 100)
-  const isSafe   = totalA <= circuitA * 0.8
-  const isWarn   = totalA > circuitA * 0.8 && totalA <= circuitA
-  const isDanger = totalA > circuitA
+  const totalA   = totalW / safeV
+  const maxW     = safeA * safeV
+  const pct      = Math.min((totalA / safeA) * 100, 100)
+  const isSafe   = totalA <= safeA * 0.8
+  const isWarn   = totalA > safeA * 0.8 && totalA <= safeA
+  const isDanger = totalA > safeA
 
   const fillClass = isDanger ? 'power-danger' : isWarn ? 'power-warn' : 'power-safe'
   const status    = isDanger ? '🔴 SURCHARGE' : isWarn ? '🟡 Proche de la limite' : '🟢 OK'
@@ -209,8 +213,8 @@ function PowerCalculator({ projectors }) {
     try {
       await supabase.from('power_calculations').insert({
         name: calcName.trim(),
-        circuit_amperage: circuitA,
-        circuit_voltage: circuitV,
+        circuit_amperage: safeA,
+        circuit_voltage: safeV,
         items: items.map(i => ({ projector_id: i.projector.id, projector_name: i.projector.name, watts: i.projector.watts, qty: i.qty })),
         total_watts: totalW,
         total_amperage: totalA,
@@ -235,7 +239,7 @@ function PowerCalculator({ projectors }) {
           <div className="form-group"><label className="label">Disjoncteur (A)</label><input className="input" type="number" value={circuitA} onChange={e => setCircuitA(+e.target.value)} min={1}/></div>
           <div className="form-group"><label className="label">Tension (V)</label><input className="input" type="number" value={circuitV} onChange={e => setCircuitV(+e.target.value)}/></div>
         </div>
-        <div style={{fontSize:13,color:'var(--text2)'}}>Capacité max : <strong>{maxW} W / {circuitA} A</strong></div>
+        <div style={{fontSize:13,color:'var(--text2)'}}>Capacité max : <strong>{maxW} W / {safeA} A</strong></div>
       </div>
 
       {/* Result */}
@@ -249,7 +253,7 @@ function PowerCalculator({ projectors }) {
           <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--text3)',marginTop:4}}>
             <span>0 W</span><span>{Math.round(maxW*0.8)} W (80%)</span><span>{maxW} W</span>
           </div>
-          {isDanger && <div style={{marginTop:10,padding:'8px 12px',background:'rgba(239,68,68,0.1)',borderRadius:'var(--radius)',fontSize:13,color:'var(--red)'}}>⚠️ Dépasse la capacité de {(totalA - circuitA).toFixed(1)}A — risque de disjonction</div>}
+          {isDanger && <div style={{marginTop:10,padding:'8px 12px',background:'rgba(239,68,68,0.1)',borderRadius:'var(--radius)',fontSize:13,color:'var(--red)'}}>⚠️ Dépasse la capacité de {(totalA - safeA).toFixed(1)}A — risque de disjonction</div>}
         </div>
       )}
 
@@ -276,7 +280,7 @@ function PowerCalculator({ projectors }) {
       {/* Save */}
       {items.length > 0 && (
         <div style={{display:'flex',gap:8,marginBottom:20}}>
-          <input className="input" placeholder="Nom du calcul (ex: Scène Gala)" value={calcName} onChange={e => setCalcName(e.target.value)} style={{flex:1}}/>
+          <input className="input" placeholder="Nom du calcul (ex: Scène Gala)" value={calcName} onChange={e => setCalcName(e.target.value)} maxLength={100} style={{flex:1}}/>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving?<span className="spinner" style={{borderTopColor:'#fff'}}/>:'💾'}</button>
         </div>
       )}

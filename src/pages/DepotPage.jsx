@@ -5,10 +5,8 @@ import { useToast } from '../hooks/useToast'
 import QRCode from 'qrcode'
 import { compressAndUpload } from '../lib/imageUtils'
 
-// ── Constants ─────────────────────────────────────────────────
 const PRESET_COLORS = ['#4F46E5','#7C3AED','#DB2777','#DC2626','#EA580C','#D97706','#65A30D','#16A34A','#0891B2','#0284C7','#6B7280','#374151']
 
-// ── Grid settings (localStorage) ─────────────────────────────
 function getGridSettings() {
   try {
     return {
@@ -18,7 +16,6 @@ function getGridSettings() {
   } catch { return { cols: 12, rows: 8 } }
 }
 
-// ── Helpers ───────────────────────────────────────────────────
 async function generateQR(shelfId) {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
   const url = `${window.location.origin}${base}/shelf/${shelfId}`
@@ -28,13 +25,20 @@ async function generateQR(shelfId) {
 async function logMovement(action, productName, shelfName, shelfId, quantityChange = null) {
   try {
     await supabase.from('product_movements').insert({
-      action, product_name: productName, shelf_name: shelfName,
-      shelf_id: shelfId, quantity_change: quantityChange,
+      action,
+      product_name: String(productName || '').slice(0, 255),
+      shelf_name: String(shelfName || '').slice(0, 255),
+      shelf_id: shelfId,
+      quantity_change: quantityChange,
     })
-  } catch (_) { /* non-blocking */ }
+  } catch (_) {} // non-blocking — historique best-effort
 }
 
-// ── Color Picker ──────────────────────────────────────────────
+// Escape HTML to prevent XSS in print windows
+function esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
 function ColorPicker({ value, onChange }) {
   return (
     <div>
@@ -56,7 +60,6 @@ function ColorPicker({ value, onChange }) {
   )
 }
 
-// ── Grid Settings Modal ───────────────────────────────────────
 function GridSettingsModal({ onClose, onApply }) {
   const { cols, rows } = getGridSettings()
   const [c, setC] = useState(cols)
@@ -89,7 +92,6 @@ function GridSettingsModal({ onClose, onApply }) {
   )
 }
 
-// ── Shelf Modal ───────────────────────────────────────────────
 function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
   const [name,    setName]    = useState(shelf?.name || '')
   const [zoneId,  setZoneId]  = useState(shelf?.zone_id || '')
@@ -143,7 +145,7 @@ function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
         <h3 className="modal-title">{shelf?.id ? 'Modifier' : 'Nouvelle'} étagère</h3>
         <div className="form-group">
           <label className="label">Nom</label>
-          <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Étagère A1"/>
+          <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Étagère A1" maxLength={100}/>
         </div>
         <div className="form-group">
           <label className="label">Zone</label>
@@ -212,7 +214,39 @@ function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
 function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
   const toast = useToast()
   const section = sections.find(s => s.id === product.section_id)
-  const isLow = product.min_quantity > 0 && product.quantity <= product.min_quantity
+  const [localQty, setLocalQty] = useState(product.quantity)
+  const [qtyLoading, setQtyLoading] = useState(false)
+  const pendingDelta = useRef(0)
+  const flushTimer   = useRef(null)
+  const tags = product.tags ? product.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+
+  // Keep local qty in sync when parent refreshes (from another client, etc.)
+  useEffect(() => { setLocalQty(product.quantity) }, [product.quantity])
+
+  // Debounced flush: accumulates rapid clicks, sends ONE DB write after 600ms idle
+  function handleQtyChange(delta) {
+    if (!isEditor) return
+    const next = Math.max(0, localQty + pendingDelta.current + delta)
+    if (next === localQty + pendingDelta.current) return // already at 0, ignore −
+    pendingDelta.current += delta
+    setLocalQty(Math.max(0, product.quantity + pendingDelta.current))
+    if (flushTimer.current) clearTimeout(flushTimer.current)
+    flushTimer.current = setTimeout(async () => {
+      const d = pendingDelta.current
+      pendingDelta.current = 0
+      if (d === 0) return
+      setQtyLoading(true)
+      const { error } = await supabase.rpc('increment_product_qty', { product_id: product.id, delta: d })
+      if (error) {
+        const newQty = Math.max(0, product.quantity + d)
+        const { error: e2 } = await supabase.from('products').update({ quantity: newQty }).eq('id', product.id)
+        if (e2) { toast('Erreur : ' + e2.message, 'error'); setQtyLoading(false); onRefresh(); return }
+      }
+      await logMovement('edit', product.name, shelfName, product.shelf_id, d)
+      setQtyLoading(false)
+      onRefresh()
+    }, 600)
+  }
 
   async function handleDelete() {
     if (!confirm('Supprimer ce produit ?')) return
@@ -224,24 +258,43 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
   }
 
   return (
-    <div style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',
+    <div style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 14px',
       background: isLow ? 'rgba(220,38,38,0.06)' : 'var(--bg3)',
       borderRadius:'var(--radius)',border: isLow ? '1px solid rgba(220,38,38,0.3)' : '1px solid var(--border)'}}>
-      {product.image_url && <img src={product.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt={product.name}/>}
+      {product.image_url && <img src={product.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2}} alt={product.name}/>}
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6}}>
+        <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           {product.name}
-          {isLow && <span title="Stock bas !" style={{fontSize:13}}>⚠️</span>}
+          {isLow && <span title="Stock bas !">⚠️</span>}
         </div>
         {section && <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>🗂 {section.name}</div>}
         {product.reference && <div style={{fontSize:12,color:'var(--text3)'}}>Réf: {product.reference}</div>}
-        <div style={{fontSize:13,color: isLow ? 'var(--red)' : 'var(--text2)',marginTop:2,fontWeight: isLow ? 700 : 400}}>
-          Qté: <strong>{product.quantity} {product.unit}</strong>
-          {product.min_quantity > 0 && <span style={{fontSize:11,color:'var(--text3)',marginLeft:6}}>min {product.min_quantity}</span>}
+        {tags.length > 0 && (
+          <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
+            {tags.map(t => (
+              <span key={t} style={{fontSize:10,background:'var(--bg)',borderRadius:10,padding:'1px 7px',border:'1px solid var(--border)',color:'var(--text2)'}}>
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6,flexWrap:'wrap'}}>
+          <span style={{fontSize:13,color: isLow ? 'var(--red)' : 'var(--text2)',fontWeight: isLow ? 700 : 400}}>
+            Qté: <strong>{localQty} {product.unit}</strong>
+            {product.min_quantity > 0 && <span style={{fontSize:11,color:'var(--text3)',marginLeft:6}}>min {product.min_quantity}</span>}
+          </span>
+          {isEditor && (
+            <div style={{display:'flex',gap:4,alignItems:'center'}}>
+              <button className="btn btn-secondary btn-sm" style={{padding:'2px 10px',fontSize:16,lineHeight:1,minWidth:28}}
+                onClick={() => handleQtyChange(-1)} disabled={qtyLoading || localQty <= 0}>−</button>
+              <button className="btn btn-primary btn-sm" style={{padding:'2px 10px',fontSize:16,lineHeight:1,minWidth:28}}
+                onClick={() => handleQtyChange(1)} disabled={qtyLoading}>+</button>
+            </div>
+          )}
         </div>
         {isLow && <div style={{fontSize:12,color:'var(--red)',marginTop:2,fontWeight:600}}>⚠️ Stock bas — réapprovisionner</div>}
       </div>
-      {isEditor && <button className="btn btn-ghost btn-icon btn-sm" onClick={handleDelete} style={{color:'var(--red)',fontSize:16}}>🗑️</button>}
+      {isEditor && <button className="btn btn-ghost btn-icon btn-sm" onClick={handleDelete} style={{color:'var(--red)',fontSize:16,flexShrink:0}}>🗑️</button>}
     </div>
   )
 }
@@ -254,6 +307,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
   const [minQty,      setMinQty]      = useState(0)
   const [unit,        setUnit]        = useState('pcs')
   const [desc,        setDesc]        = useState('')
+  const [tags,        setTags]        = useState('')
   const [sectionId,   setSectionId]   = useState('')
   const [imgFile,     setImgFile]     = useState(null)
   const [imgPrev,     setImgPrev]     = useState(null)
@@ -268,7 +322,8 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
       await supabase.from('products').insert({
         name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
-        unit, description: desc, shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
+        unit, description: desc, tags: tags.trim(),
+        shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
       })
       await logMovement('add', name.trim(), shelfName, shelfId, +qty)
       toast('Produit ajouté', 'success')
@@ -281,11 +336,11 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
     <>
       <h3 className="modal-title">Nouveau produit</h3>
       <div className="form-group"><label className="label">Nom</label>
-        <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Machine à fumée"/>
+        <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Machine à fumée" maxLength={255}/>
       </div>
       <div className="form-row">
         <div className="form-group"><label className="label">Référence</label>
-          <input className="input" value={ref} onChange={e => setRef(e.target.value)} placeholder="REF-001"/>
+          <input className="input" value={ref} onChange={e => setRef(e.target.value)} placeholder="REF-001" maxLength={100}/>
         </div>
         <div className="form-group"><label className="label">Étage / Section</label>
           <select className="input" value={sectionId} onChange={e => setSectionId(e.target.value)}>
@@ -296,7 +351,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       </div>
       <div className="form-row">
         <div className="form-group"><label className="label">Quantité</label>
-          <input className="input" type="number" min={0} value={qty} onChange={e => setQty(e.target.value)}/>
+          <input className="input" type="number" min={0} max={99999} value={qty} onChange={e => setQty(e.target.value)}/>
         </div>
         <div className="form-group"><label className="label">Unité</label>
           <select className="input" value={unit} onChange={e => setUnit(e.target.value)}>
@@ -306,9 +361,13 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       </div>
       <div className="form-group">
         <label className="label">Quantité minimum (alerte stock bas)</label>
-        <input className="input" type="number" min={0} value={minQty} onChange={e => setMinQty(e.target.value)}
-          placeholder="0 = pas d'alerte"/>
-        <p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Une alerte ⚠️ s'affiche quand la quantité atteint ce seuil</p>
+        <input className="input" type="number" min={0} value={minQty} onChange={e => setMinQty(e.target.value)} placeholder="0 = pas d'alerte"/>
+      </div>
+      <div className="form-group">
+        <label className="label">Tags / Catégories</label>
+        <input className="input" value={tags} onChange={e => setTags(e.target.value)}
+          placeholder="lumière, câble, sono  (séparés par des virgules)" maxLength={500}/>
+        <p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Permets de filtrer et retrouver les produits par catégorie</p>
       </div>
       <div className="form-group"><label className="label">Description</label>
         <textarea className="input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Notes..."/>
@@ -342,17 +401,18 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
   const [newSectionName, setNewSectionName] = useState('')
   const [showQR,         setShowQR]         = useState(false)
   const [qrData,         setQrData]         = useState(null)
+  const [tagFilter,      setTagFilter]      = useState('')
   const toast = useToast()
 
   useEffect(() => { loadProducts(); loadSections() }, [shelf.id])
 
   async function loadProducts() {
-    const { data } = await supabase.from('products').select('*').eq('shelf_id', shelf.id).order('name')
-    setProducts(data || [])
+    const { data, error } = await supabase.from('products').select('*').eq('shelf_id', shelf.id).order('name')
+    if (!error) setProducts(data || [])
   }
   async function loadSections() {
-    const { data } = await supabase.from('shelf_sections').select('*').eq('shelf_id', shelf.id).order('position')
-    setSections(data || [])
+    const { data, error } = await supabase.from('shelf_sections').select('*').eq('shelf_id', shelf.id).order('position')
+    if (!error) setSections(data || [])
   }
 
   async function handleShowQR() {
@@ -367,16 +427,17 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
     doc.open()
     doc.write('<html><head><meta charset="utf-8"></head><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#fff"><img id="qr" style="width:200px"/><p id="nm" style="margin-top:12px;font-weight:700;font-size:18px"></p><p id="ds" style="color:#666;font-size:14px"></p></body></html>')
     doc.close()
-    doc.getElementById('qr').src = qrData
-    doc.getElementById('nm').textContent = shelf.name
+    doc.getElementById('qr').src = qrData  // qrData is a data: URL generated by us
+    doc.getElementById('nm').textContent = shelf.name         // textContent is safe (no HTML injection)
     doc.getElementById('ds').textContent = shelf.description || ''
     win.print()
   }
 
   async function addSection() {
-    if (!newSectionName.trim()) return
+    const trimmed = newSectionName.trim().slice(0, 100)
+    if (!trimmed) return
     const { error } = await supabase.from('shelf_sections').insert({
-      shelf_id: shelf.id, name: newSectionName.trim(), position: sections.length,
+      shelf_id: shelf.id, name: trimmed, position: sections.length,
     })
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     setNewSectionName(''); setShowAddSection(false)
@@ -390,6 +451,11 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
     loadSections()
   }
 
+  // Collect all unique tags in this shelf
+  const allTags = [...new Set(products.flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+  const filteredProducts = tagFilter
+    ? products.filter(p => p.tags && p.tags.toLowerCase().includes(tagFilter.toLowerCase()))
+    : products
   const lowStockCount = products.filter(p => p.min_quantity > 0 && p.quantity <= p.min_quantity).length
 
   return (
@@ -446,7 +512,7 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
               <div style={{display:'flex',gap:8,marginBottom:12}}>
                 <input className="input" style={{flex:1}} value={newSectionName}
                   onChange={e => setNewSectionName(e.target.value)}
-                  placeholder="Étage 1, Haut, Bas, Tiroir..."
+                  placeholder="Étage 1, Haut, Bas, Tiroir..." maxLength={100}
                   onKeyDown={e => e.key === 'Enter' && addSection()}/>
                 <button className="btn btn-primary btn-sm" onClick={addSection}>OK</button>
               </div>
@@ -466,14 +532,31 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
             )}
 
             <div className="section-header">
-              <span className="section-title">Produits ({products.length})</span>
+              <span className="section-title">Produits ({filteredProducts.length}{tagFilter ? `/${products.length}` : ''})</span>
               {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddProduct(true)}>+ Ajouter</button>}
             </div>
-            {products.length === 0 ? (
-              <div className="empty"><div className="empty-icon">📦</div><p>Aucun produit</p></div>
+
+            {/* Tag filter */}
+            {allTags.length > 0 && (
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12,marginTop:8}}>
+                <button
+                  className={`btn btn-sm ${!tagFilter ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{fontSize:11,padding:'3px 10px'}}
+                  onClick={() => setTagFilter('')}>Tous</button>
+                {allTags.map(t => (
+                  <button key={t}
+                    className={`btn btn-sm ${tagFilter===t ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{fontSize:11,padding:'3px 10px'}}
+                    onClick={() => setTagFilter(tagFilter === t ? '' : t)}>{t}</button>
+                ))}
+              </div>
+            )}
+
+            {filteredProducts.length === 0 ? (
+              <div className="empty"><div className="empty-icon">📦</div><p>{tagFilter ? `Aucun produit avec le tag "${tagFilter}"` : 'Aucun produit'}</p></div>
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                {products.map(p => (
+                {filteredProducts.map(p => (
                   <ProductCard key={p.id} product={p} sections={sections} isEditor={isEditor}
                     shelfName={shelf.name} onRefresh={loadProducts}/>
                 ))}
@@ -518,25 +601,25 @@ h1{font-size:20px;font-weight:700;margin-bottom:6px}.subtitle{color:#666;font-si
 .qr{width:80px;height:80px;flex-shrink:0}.shelf-name{font-size:16px;font-weight:700}
 .shelf-desc{font-size:12px;color:#666;margin-top:3px}.shelf-meta{font-size:11px;color:#999;margin-top:3px}
 table{width:100%;border-collapse:collapse}th{background:#f0f0f0;text-align:left;padding:7px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #ddd}
-td{padding:7px 12px;border-bottom:1px solid #eee}.low{color:#dc2626;font-weight:700}
+td{padding:7px 12px;border-bottom:1px solid #eee}.low{color:#dc2626;font-weight:700}.tag{display:inline-block;background:#f0f0f0;border-radius:10px;padding:1px 7px;font-size:10px;margin:1px}
 .no-products{padding:12px 16px;color:#999;font-style:italic}@media print{body{padding:10px}}</style>
 </head><body>
 <h1>📦 Export Dépôt — Stockr</h1>
 <p class="subtitle">Généré le ${new Date().toLocaleDateString('fr')} · ${shelves.length} étagère${shelves.length>1?'s':''} · ${totalProducts} produit${totalProducts>1?'s':''}</p>
 ${exportData.map(({ shelf, products, sections, qrUrl }) => {
   const sectionMap = Object.fromEntries(sections.map(s => [s.id, s.name]))
-  return `<div class="shelf"><div class="shelf-header"><img class="qr" src="${qrUrl}" alt="QR"/><div>
-<div class="shelf-name">${shelf.name}</div>
-${shelf.description ? `<div class="shelf-desc">${shelf.description}</div>` : ''}
+  return `<div class="shelf"><div class="shelf-header"><img class="qr" src="${esc(qrUrl)}" alt="QR"/><div>
+<div class="shelf-name">${esc(shelf.name)}</div>
+${shelf.description ? `<div class="shelf-desc">${esc(shelf.description)}</div>` : ''}
 <div class="shelf-meta">${products.length} produit${products.length!==1?'s':''}</div></div></div>
 ${products.length === 0 ? '<p class="no-products">Aucun produit</p>' :
-`<table><thead><tr><th>Produit</th><th>Réf.</th><th>Étage</th><th>Quantité</th><th>Min</th><th>Description</th></tr></thead><tbody>
+`<table><thead><tr><th>Produit</th><th>Réf.</th><th>Tags</th><th>Étage</th><th>Quantité</th><th>Min</th></tr></thead><tbody>
 ${products.map(p => {
   const isLow = p.min_quantity > 0 && p.quantity <= p.min_quantity
-  return `<tr><td${isLow?' class="low"':''}>${p.name}${isLow?' ⚠️':''}</td><td>${p.reference||'—'}</td>
-<td>${p.section_id && sectionMap[p.section_id] ? sectionMap[p.section_id] : '—'}</td>
-<td${isLow?' class="low"':''}>${p.quantity} ${p.unit}</td>
-<td>${p.min_quantity||'—'}</td><td>${p.description||''}</td></tr>`}).join('')}
+  const tagHtml = p.tags ? p.tags.split(',').map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : '—'
+  return `<tr><td${isLow?' class="low"':''}>${esc(p.name)}${isLow?' ⚠️':''}</td><td>${esc(p.reference)||'—'}</td>
+<td>${tagHtml}</td><td>${p.section_id && sectionMap[p.section_id] ? esc(sectionMap[p.section_id]) : '—'}</td>
+<td${isLow?' class="low"':''}>${esc(p.quantity)} ${esc(p.unit)}</td><td>${p.min_quantity||'—'}</td></tr>`}).join('')}
 </tbody></table>`}</div>`}).join('')}
 </body></html>`
     doc.write(html); doc.close()
@@ -559,7 +642,7 @@ ${products.map(p => {
             <p style={{color:'var(--text2)',fontSize:14,marginBottom:8}}>
               <strong>{shelves.length}</strong> étagère{shelves.length>1?'s':''} · <strong>{totalProducts}</strong> produit{totalProducts>1?'s':''}
             </p>
-            <p style={{fontSize:13,color:'var(--text3)'}}>Le document inclut QR codes, étages, produits et alertes stock bas. Utilise "Enregistrer en PDF" dans la boîte d'impression.</p>
+            <p style={{fontSize:13,color:'var(--text3)'}}>Le document inclut QR codes, tags, étages et alertes stock bas.</p>
           </div>
         )}
         <div className="form-actions">
@@ -613,7 +696,7 @@ function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
         <h3 className="modal-title">🏠 {room?.id ? 'Modifier' : 'Nouvelle'} pièce</h3>
         <div className="form-group">
           <label className="label">Nom</label>
-          <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Réserve, Scène, Coulisses..."/>
+          <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Réserve, Scène, Coulisses..." maxLength={100}/>
         </div>
         <div className="form-group">
           <label className="label">Couleur</label>
@@ -670,67 +753,47 @@ function QRScannerModal({ shelves, onFound, onClose }) {
   async function handleFile(e) {
     const file = e.target.files[0]
     if (!file) return
-    setScanning(true)
-    setStatus('Analyse du QR code...')
+    setScanning(true); setStatus('Analyse du QR code...')
     try {
       if (!('BarcodeDetector' in window)) {
         toast('Scanner non disponible sur ce navigateur. Utilise Chrome ou Edge.', 'error')
-        setStatus('')
-        setScanning(false)
-        return
+        setScanning(false); setStatus(''); return
       }
       const bitmap = await createImageBitmap(file)
       const detector = new BarcodeDetector({ formats: ['qr_code'] })
       const barcodes = await detector.detect(bitmap)
-      if (barcodes.length === 0) {
-        toast('Aucun QR code détecté dans cette image', 'error')
-        setStatus('')
-        setScanning(false)
-        return
-      }
+      if (barcodes.length === 0) { toast('Aucun QR code détecté', 'error'); setScanning(false); setStatus(''); return }
       const value = barcodes[0].rawValue
       const match = value.match(/\/shelf\/([a-f0-9-]{36})/i)
-      if (!match) { toast('QR code non reconnu (pas une étagère Stockr)', 'error'); setScanning(false); return }
+      if (!match) { toast('QR code non reconnu', 'error'); setScanning(false); return }
       const shelf = shelves.find(s => s.id === match[1])
-      if (!shelf) { toast('Étagère introuvable dans ce dépôt', 'error'); setScanning(false); return }
+      if (!shelf) { toast('Étagère introuvable', 'error'); setScanning(false); return }
       setStatus('Étagère trouvée !')
       setTimeout(() => { onFound(shelf); onClose() }, 500)
-    } catch(err) {
-      toast('Erreur scan : ' + err.message, 'error')
-      setScanning(false)
-      setStatus('')
-    }
+    } catch(err) { toast('Erreur scan : ' + err.message, 'error'); setScanning(false); setStatus('') }
   }
-
-  const supported = 'BarcodeDetector' in window
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3 className="modal-title">📷 Scanner un QR Code</h3>
-        {!supported ? (
-          <div style={{padding:'20px 0',textAlign:'center'}}>
-            <div style={{fontSize:40,marginBottom:12}}>⚠️</div>
-            <p style={{color:'var(--text2)',fontSize:14}}>Le scanner QR nécessite Chrome ou Edge (Android/PC).</p>
-            <p style={{color:'var(--text3)',fontSize:12,marginTop:8}}>Sur iOS, utilise l'appareil photo natif qui reconnaît les QR codes automatiquement.</p>
-          </div>
-        ) : (
+        {'BarcodeDetector' in window ? (
           <>
-            <p style={{color:'var(--text2)',fontSize:14,marginBottom:16}}>
-              Prends une photo du QR code d'une étagère pour l'ouvrir directement.
-            </p>
+            <p style={{color:'var(--text2)',fontSize:14,marginBottom:16}}>Prends une photo du QR code d'une étagère pour l'ouvrir directement.</p>
             <label style={{display:'block',cursor:'pointer'}}>
               <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={handleFile} disabled={scanning}/>
-              <div style={{border:'2px dashed var(--border)',borderRadius:12,padding:'40px 20px',textAlign:'center',background:'var(--bg3)',transition:'border-color 0.2s'}}>
-                {scanning
-                  ? <><span className="spinner" style={{width:32,height:32}}/><p style={{marginTop:12,color:'var(--text2)',fontSize:13}}>{status}</p></>
-                  : <><div style={{fontSize:48}}>📷</div>
-                      <p style={{marginTop:8,fontWeight:600}}>Appuyer pour scanner</p>
-                      <p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Ouvre la caméra ou la galerie</p>
-                    </>}
+              <div style={{border:'2px dashed var(--border)',borderRadius:12,padding:'40px 20px',textAlign:'center',background:'var(--bg3)'}}>
+                {scanning ? <><span className="spinner" style={{width:32,height:32}}/><p style={{marginTop:12,color:'var(--text2)',fontSize:13}}>{status}</p></>
+                  : <><div style={{fontSize:48}}>📷</div><p style={{marginTop:8,fontWeight:600}}>Appuyer pour scanner</p><p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Ouvre la caméra ou la galerie</p></>}
               </div>
             </label>
           </>
+        ) : (
+          <div style={{padding:'20px 0',textAlign:'center'}}>
+            <div style={{fontSize:40,marginBottom:12}}>⚠️</div>
+            <p style={{color:'var(--text2)',fontSize:14}}>Le scanner QR nécessite Chrome ou Edge.</p>
+            <p style={{color:'var(--text3)',fontSize:12,marginTop:8}}>Sur iOS, l'appareil photo reconnaît les QR codes automatiquement.</p>
+          </div>
         )}
         <div className="form-actions" style={{marginTop:16}}>
           <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
@@ -742,35 +805,50 @@ function QRScannerModal({ shelves, onFound, onClose }) {
 
 // ── Import CSV Modal ───────────────────────────────────────────
 function ImportCSVModal({ shelves, onClose, onDone }) {
-  const [file,    setFile]    = useState(null)
-  const [shelfId, setShelfId] = useState('')
-  const [preview, setPreview] = useState([])
-  const [total,   setTotal]   = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [parseErr,setParseErr]= useState('')
+  const [file,     setFile]     = useState(null)
+  const [shelfId,  setShelfId]  = useState('')
+  const [preview,  setPreview]  = useState([])
+  const [total,    setTotal]    = useState(0)
+  const [loading,  setLoading]  = useState(false)
+  const [parseErr, setParseErr] = useState('')
+  const [parsedRows, setParsedRows] = useState([])
   const toast = useToast()
 
+  function splitCSVLine(line) {
+    const result = []; let cur = ''; let inQ = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') { inQ = !inQ }
+      else if ((ch === ',' || ch === ';') && !inQ) { result.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    result.push(cur.trim())
+    return result
+  }
   function parseCSV(text) {
     const lines = text.trim().split(/\r?\n/)
-    const headers = lines[0].split(/[,;]/).map(h => h.trim().replace(/^"|"$/g, '').toLowerCase())
+    const headers = splitCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').toLowerCase().trim())
     return lines.slice(1).filter(l => l.trim()).map(line => {
-      const vals = line.split(/[,;]/).map(v => v.trim().replace(/^"|"$/g, ''))
+      const vals = splitCSVLine(line).map(v => v.replace(/^"|"$/g, ''))
       const obj = {}
       headers.forEach((h, i) => { obj[h] = vals[i] || '' })
       return obj
     })
   }
 
+  const CSV_ROW_LIMIT = 500
+
   function handleFile(e) {
     const f = e.target.files[0]
     if (!f) return
+    if (f.size > 5 * 1024 * 1024) { setParseErr('Fichier trop volumineux (max 5 Mo)'); return }
     setFile(f); setParseErr('')
     const reader = new FileReader()
     reader.onload = evt => {
       try {
         const rows = parseCSV(evt.target.result)
-        setTotal(rows.length)
-        setPreview(rows.slice(0, 5))
+        if (rows.length > CSV_ROW_LIMIT) { setParseErr(`Trop de lignes (max ${CSV_ROW_LIMIT}, fichier : ${rows.length})`); setFile(null); return }
+        setParsedRows(rows); setTotal(rows.length); setPreview(rows.slice(0, 5))
       } catch { setParseErr('Fichier CSV invalide') }
     }
     reader.readAsText(f, 'utf-8')
@@ -778,31 +856,30 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
 
   async function handleImport() {
     if (!shelfId) { toast('Choisir une étagère', 'error'); return }
-    if (!file) return
+    if (!file || parsedRows.length === 0) return
     setLoading(true)
-    const reader = new FileReader()
-    reader.onload = async evt => {
-      try {
-        const rows = parseCSV(evt.target.result)
+    try {
+      {
+        const rows = parsedRows
         const shelf = shelves.find(s => s.id === shelfId)
         const products = rows.map(r => ({
           shelf_id: shelfId,
-          name: r.name || r.nom || r['produit'] || 'Sans nom',
-          reference: r.reference || r.ref || r['réf'] || '',
-          quantity: parseInt(r.quantity || r.quantite || r['quantité'] || r.qte || '0') || 0,
-          unit: r.unit || r.unite || r['unité'] || 'pcs',
-          description: r.description || r.notes || '',
-          min_quantity: parseInt(r.min_quantity || r.min || r['min_qte'] || '0') || 0,
+          name: String(r.name || r.nom || 'Sans nom').slice(0, 255),
+          reference: String(r.reference || r.ref || '').slice(0, 100),
+          quantity: Math.max(0, parseInt(r.quantity || r.quantite || r.qte || '0') || 0),
+          unit: String(r.unit || r.unite || 'pcs').slice(0, 50),
+          description: String(r.description || r.notes || '').slice(0, 1000),
+          min_quantity: Math.max(0, parseInt(r.min_quantity || r.min || '0') || 0),
+          tags: String(r.tags || r.categories || r.cat || '').slice(0, 500),
         }))
         const { error } = await supabase.from('products').insert(products)
         if (error) throw error
         await logMovement('import', `${products.length} produits importés`, shelf?.name, shelfId, products.length)
         toast(`${products.length} produit${products.length>1?'s':''} importé${products.length>1?'s':''}`, 'success')
         onDone(); onClose()
-      } catch(err) { toast('Erreur import : ' + err.message, 'error') }
-      finally { setLoading(false) }
-    }
-    reader.readAsText(file, 'utf-8')
+      }
+    } catch(err) { toast('Erreur import : ' + err.message, 'error') }
+    finally { setLoading(false) }
   }
 
   return (
@@ -818,10 +895,7 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
         </div>
         <div className="form-group">
           <label className="label">Fichier CSV</label>
-          <p style={{fontSize:12,color:'var(--text3)',marginBottom:6}}>
-            Colonnes acceptées : <code>name</code> (requis), <code>reference</code>, <code>quantity</code>, <code>unit</code>, <code>description</code>, <code>min_quantity</code><br/>
-            Séparateur , ou ; · Encodage UTF-8
-          </p>
+          <p style={{fontSize:12,color:'var(--text3)',marginBottom:6}}>Colonnes : <code>name</code> (requis), <code>reference</code>, <code>quantity</code>, <code>unit</code>, <code>min_quantity</code>, <code>tags</code>, <code>description</code></p>
           <label className="upload-zone" style={{cursor:'pointer'}}>
             <input type="file" accept=".csv,text/csv,text/plain" style={{display:'none'}} onChange={handleFile}/>
             <div style={{fontSize:28}}>📄</div>
@@ -834,11 +908,10 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
             <p style={{fontSize:13,color:'var(--text2)',marginBottom:8}}>Aperçu — {total} ligne{total>1?'s':''} :</p>
             <div style={{background:'var(--bg3)',borderRadius:8,padding:10,fontSize:12,overflowX:'auto',border:'1px solid var(--border)'}}>
               {preview.map((r, i) => (
-                <div key={i} style={{borderBottom:'1px solid var(--border)',paddingBottom:4,marginBottom:4,lastChild:{borderBottom:'none'}}}>
+                <div key={i} style={{borderBottom:'1px solid var(--border)',paddingBottom:4,marginBottom:4}}>
                   <strong>{r.name || r.nom || '?'}</strong>
-                  <span style={{color:'var(--text3)',marginLeft:8}}>Qté: {r.quantity || r.quantite || 0} {r.unit || r.unite || 'pcs'}</span>
-                  {(r.reference || r.ref) && <span style={{color:'var(--text3)',marginLeft:8}}>· {r.reference || r.ref}</span>}
-                  {(r.min_quantity || r.min) && <span style={{color:'var(--text3)',marginLeft:8}}>· min {r.min_quantity || r.min}</span>}
+                  <span style={{color:'var(--text3)',marginLeft:8}}>Qté: {r.quantity || 0} {r.unit || 'pcs'}</span>
+                  {(r.tags || r.categories) && <span style={{color:'var(--indigo)',marginLeft:8}}>🏷 {r.tags || r.categories}</span>}
                 </div>
               ))}
               {total > 5 && <p style={{color:'var(--text3)',fontSize:11,marginTop:4}}>... et {total-5} autre{total-5>1?'s':''}</p>}
@@ -863,13 +936,8 @@ function HistoryModal({ onClose }) {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('product_movements')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100)
-      setMovements(data || [])
-      setLoading(false)
+      const { data } = await supabase.from('product_movements').select('*').order('created_at', { ascending: false }).limit(100)
+      setMovements(data || []); setLoading(false)
     }
     load()
   }, [])
@@ -884,7 +952,7 @@ function HistoryModal({ onClose }) {
         {loading ? (
           <div style={{display:'flex',justifyContent:'center',padding:32}}><span className="spinner" style={{width:32,height:32}}/></div>
         ) : movements.length === 0 ? (
-          <div className="empty"><div className="empty-icon">📋</div><p>Aucun mouvement enregistré</p><p style={{fontSize:13,color:'var(--text3)',marginTop:4}}>Les ajouts et suppressions de produits apparaissent ici.</p></div>
+          <div className="empty"><div className="empty-icon">📋</div><p>Aucun mouvement enregistré</p></div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'60vh',overflowY:'auto'}}>
             {movements.map(m => (
@@ -895,16 +963,124 @@ function HistoryModal({ onClose }) {
                   <div style={{fontSize:12,color:'var(--text2)',marginTop:2}}>
                     {labels[m.action] || m.action}
                     {m.shelf_name && <span style={{color:'var(--text3)'}}> · {m.shelf_name}</span>}
-                    {m.quantity_change != null && m.action !== 'import' && <span style={{color:'var(--text3)'}}> · Qté {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}</span>}
+                    {m.quantity_change != null && m.action !== 'import' && <span style={{color:'var(--text3)'}}> · {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}</span>}
                   </div>
-                  <div style={{fontSize:11,color:'var(--text3)',marginTop:3}}>
-                    {new Date(m.created_at).toLocaleString('fr-FR')}
-                  </div>
+                  <div style={{fontSize:11,color:'var(--text3)',marginTop:3}}>{new Date(m.created_at).toLocaleString('fr-FR')}</div>
                 </div>
               </div>
             ))}
           </div>
         )}
+        <div className="form-actions" style={{marginTop:16}}>
+          <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Global Search Modal ────────────────────────────────────────
+function GlobalSearchModal({ onShelfSelect, onClose }) {
+  const [q,        setQ]        = useState('')
+  const [results,  setResults]  = useState([])
+  const [loading,  setLoading]  = useState(false)
+  const [tagFilter,setTagFilter]= useState('')
+  const [allTags,  setAllTags]  = useState([])
+  const inputRef = useRef(null)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (q.length >= 1 || tagFilter) search()
+      else setResults([])
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [q, tagFilter])
+
+  async function search() {
+    setLoading(true)
+    let query = supabase.from('products').select('*, shelves(name, id)')
+    const safeQ = q.replace(/[()%,]/g, ' ').trim()
+    if (safeQ.length >= 1) query = query.or(`name.ilike.%${safeQ}%,reference.ilike.%${safeQ}%,tags.ilike.%${safeQ}%,description.ilike.%${safeQ}%`)
+    if (tagFilter) query = query.ilike('tags', `%${tagFilter}%`)
+    const { data } = await query.limit(40).order('name')
+    setResults(data || [])
+    // collect tags from first load
+    if (!tagFilter && q.length < 1) {
+      const tags = [...new Set((data || []).flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+      setAllTags(tags)
+    }
+    setLoading(false)
+  }
+
+  // Load all tags on open
+  useEffect(() => {
+    supabase.from('products').select('tags').then(({ data }) => {
+      const tags = [...new Set((data || []).flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+      setAllTags(tags)
+    })
+  }, [])
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{maxWidth:560}}>
+        <h3 className="modal-title">🔍 Recherche globale</h3>
+        <input ref={inputRef} className="input" value={q} onChange={e => setQ(e.target.value.slice(0, 200))}
+          placeholder="Nom, référence, tag, description..." style={{marginBottom:10}}/>
+
+        {allTags.length > 0 && (
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+            <button className={`btn btn-sm ${!tagFilter?'btn-primary':'btn-secondary'}`} style={{fontSize:11,padding:'3px 10px'}}
+              onClick={() => setTagFilter('')}>Tous</button>
+            {allTags.map(t => (
+              <button key={t} className={`btn btn-sm ${tagFilter===t?'btn-primary':'btn-secondary'}`}
+                style={{fontSize:11,padding:'3px 10px'}} onClick={() => setTagFilter(tagFilter===t?'':t)}>🏷 {t}</button>
+            ))}
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{display:'flex',justifyContent:'center',padding:24}}><span className="spinner"/></div>
+        ) : results.length === 0 && (q || tagFilter) ? (
+          <div className="empty" style={{padding:'24px 0'}}><div className="empty-icon">🔍</div><p>Aucun résultat</p></div>
+        ) : results.length > 0 ? (
+          <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'55vh',overflowY:'auto'}}>
+            {results.map(p => {
+              const isLow = p.min_quantity > 0 && p.quantity <= p.min_quantity
+              const tags = p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+              return (
+                <div key={p.id}
+                  style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 12px',
+                    background: isLow ? 'rgba(220,38,38,0.06)' : 'var(--bg3)',
+                    borderRadius:8,border: isLow ? '1px solid rgba(220,38,38,0.3)' : '1px solid var(--border)',
+                    cursor:'pointer'}}
+                  onClick={() => { if (p.shelves) { onShelfSelect({ id: p.shelves.id, name: p.shelves.name }); onClose() } }}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6}}>
+                      {p.name} {isLow && '⚠️'}
+                    </div>
+                    {p.shelves && <div style={{fontSize:12,color:'var(--indigo)',marginTop:2}}>📦 {p.shelves.name}</div>}
+                    {p.reference && <div style={{fontSize:12,color:'var(--text3)'}}>Réf: {p.reference}</div>}
+                    <div style={{fontSize:12,color: isLow ? 'var(--red)' : 'var(--text2)',marginTop:2,fontWeight: isLow ? 700 : 400}}>
+                      Qté: {p.quantity} {p.unit}
+                      {p.min_quantity > 0 && <span style={{color:'var(--text3)',fontWeight:400}}> / min {p.min_quantity}</span>}
+                    </div>
+                    {tags.length > 0 && (
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
+                        {tags.map(t => <span key={t} style={{fontSize:10,background:'var(--bg)',borderRadius:10,padding:'1px 7px',border:'1px solid var(--border)',color:'var(--text2)'}}>{t}</span>)}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{color:'var(--text3)',fontSize:18,flexShrink:0,marginTop:2}}>›</span>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p style={{color:'var(--text3)',fontSize:13,textAlign:'center',padding:'16px 0'}}>Tape pour chercher dans tous les produits du dépôt</p>
+        )}
+
         <div className="form-actions" style={{marginTop:16}}>
           <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
         </div>
@@ -922,28 +1098,32 @@ export default function DepotPage() {
   const [gridCols, setGridCols] = useState(initCols)
   const [gridRows, setGridRows] = useState(initRows)
 
-  const [shelves,         setShelves]         = useState([])
-  const [zones,           setZones]           = useState([])
-  const [rooms,           setRooms]           = useState([])
-  const [productCounts,   setProductCounts]   = useState({})
-  const [loading,         setLoading]         = useState(true)
-  const [view,            setView]            = useState('grid')
-  const [search,          setSearch]          = useState('')
-  const [selectedShelf,   setSelectedShelf]   = useState(null)
-  const [editShelf,       setEditShelf]       = useState(null)
-  const [showAddShelf,    setShowAddShelf]    = useState(false)
-  const [showGridSettings,setShowGridSettings]= useState(false)
-  const [showExport,      setShowExport]      = useState(false)
-  const [showScanner,     setShowScanner]     = useState(false)
-  const [showImportCSV,   setShowImportCSV]   = useState(false)
-  const [showHistory,     setShowHistory]     = useState(false)
-  const [dragMode,        setDragMode]        = useState(false)
-  const [dragShelfId,     setDragShelfId]     = useState(null)
-  const [showRoomModal,   setShowRoomModal]   = useState(false)
-  const [editRoom,        setEditRoom]        = useState(null)
-  const [roomDrawMode,    setRoomDrawMode]    = useState(false)
-  const [drawStart,       setDrawStart]       = useState(null)
-  const [drawHover,       setDrawHover]       = useState(null)
+  const [shelves,          setShelves]          = useState([])
+  const [zones,            setZones]            = useState([])
+  const [rooms,            setRooms]            = useState([])
+  const [productCounts,    setProductCounts]    = useState({})
+  const [loading,          setLoading]          = useState(true)
+  const [view,             setView]             = useState('grid')
+  const [search,           setSearch]           = useState('')
+  const [selectedShelf,    setSelectedShelf]    = useState(null)
+  const [editShelf,        setEditShelf]        = useState(null)
+  const [showAddShelf,     setShowAddShelf]     = useState(false)
+  const [showGridSettings, setShowGridSettings] = useState(false)
+  const [showExport,       setShowExport]       = useState(false)
+  const [showScanner,      setShowScanner]      = useState(false)
+  const [showImportCSV,    setShowImportCSV]    = useState(false)
+  const [showHistory,      setShowHistory]      = useState(false)
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false)
+  const [dragMode,         setDragMode]         = useState(false)
+  const [dragShelfId,      setDragShelfId]      = useState(null)
+  const [showRoomModal,    setShowRoomModal]    = useState(false)
+  const [editRoom,         setEditRoom]         = useState(null)
+  const [roomDrawMode,     setRoomDrawMode]     = useState(false)
+  const [drawStart,        setDrawStart]        = useState(null)
+  const [drawHover,        setDrawHover]        = useState(null)
+  const [gridZoom,         setGridZoom]         = useState(() => {
+    try { return parseFloat(localStorage.getItem('gridZoom') || '1') } catch { return 1 }
+  })
 
   useEffect(() => { loadAll() }, [])
 
@@ -954,29 +1134,40 @@ export default function DepotPage() {
     return () => ch.unsubscribe()
   }, [])
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        setRoomDrawMode(false); setDrawStart(null); setDrawHover(null)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault(); setShowGlobalSearch(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   async function loadAll() {
     setLoading(true)
-    const [{ data: s }, { data: z }, { data: r }, { data: allProds }] = await Promise.all([
+    const [shelvesRes, zonesRes, roomsRes, prodsRes] = await Promise.all([
       supabase.from('shelves').select('*').order('name'),
       supabase.from('depot_zones').select('*').order('name'),
       supabase.from('depot_rooms').select('*').order('name'),
       supabase.from('products').select('shelf_id, quantity, min_quantity'),
     ])
+    const [{ data: s, error: sErr }, { data: z }, { data: r }, { data: allProds }] =
+      [shelvesRes, zonesRes, roomsRes, prodsRes]
+    if (sErr) { toast('Erreur chargement : ' + sErr.message, 'error') }
     const shelvesList = s || []
-    setShelves(shelvesList)
-    setZones(z || [])
-    setRooms(r || [])
-
-    // Build product count + low stock info per shelf
+    setShelves(shelvesList); setZones(z || []); setRooms(r || [])
     const counts = {}
     ;(allProds || []).forEach(p => {
       if (!counts[p.shelf_id]) counts[p.shelf_id] = { total: 0, lowStock: 0 }
       counts[p.shelf_id].total++
       if (p.min_quantity > 0 && p.quantity <= p.min_quantity) counts[p.shelf_id].lowStock++
     })
-    setProductCounts(counts)
-    setLoading(false)
-
+    setProductCounts(counts); setLoading(false)
     if (window.__pendingShelfId) {
       const target = shelvesList.find(sh => sh.id === window.__pendingShelfId)
       if (target) setSelectedShelf(target)
@@ -1010,7 +1201,9 @@ export default function DepotPage() {
         for (let dy = 0; dy < h; dy++) {
           for (let dx = 0; dx < w; dx++) {
             if (dx === 0 && dy === 0) continue
-            occupied.add(`${s.grid_x + dx}-${s.grid_y + dy}`)
+            const nx = s.grid_x + dx
+            const ny = s.grid_y + dy
+            if (nx < gridCols && ny < gridRows) occupied.add(`${nx}-${ny}`)
           }
         }
       }
@@ -1024,7 +1217,6 @@ export default function DepotPage() {
     return z?.color || '#4F46E5'
   }
 
-  // Draw mode helpers
   function getDrawRect() {
     if (!drawStart || !drawHover) return null
     const x = Math.min(drawStart.x, drawHover.x)
@@ -1034,33 +1226,11 @@ export default function DepotPage() {
     return { x, y, w, h }
   }
 
-  function handleCellMouseDown(cx, cy, e) {
-    if (!roomDrawMode) return
-    e.preventDefault()
-    setDrawStart({ x: cx, y: cy })
-    setDrawHover({ x: cx, y: cy })
-  }
-
-  function handleCellMouseEnter(cx, cy) {
-    if (!roomDrawMode || !drawStart) return
-    setDrawHover({ x: cx, y: cy })
-  }
-
-  function handleCellMouseUp(cx, cy) {
-    if (!roomDrawMode || !drawStart) return
-    const rect = getDrawRect()
-    if (rect) {
-      setEditRoom({ grid_x: rect.x, grid_y: rect.y, grid_w: rect.w, grid_h: rect.h })
-      setShowRoomModal(true)
-    }
-    setDrawStart(null); setDrawHover(null)
-    setRoomDrawMode(false)
-  }
-
   const filtered = shelves.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
   const { grid, occupied } = buildGrid()
-  const cellSize = Math.max(36, Math.min(52, Math.floor((Math.min(window.innerWidth, 900) - 60) / gridCols)))
-
+  const clampedZoom = Math.max(0.6, Math.min(2.0, gridZoom))
+  const baseCellSize = Math.max(36, Math.min(52, Math.floor((Math.min(window.innerWidth, 900) - 60) / gridCols)))
+  const cellSize = Math.round(baseCellSize * clampedZoom)
   const cells = []
   for (let y = 0; y < gridRows; y++) {
     for (let x = 0; x < gridCols; x++) {
@@ -1068,7 +1238,6 @@ export default function DepotPage() {
     }
   }
 
-  // Total low stock count for header badge
   const totalLowStock = Object.values(productCounts).reduce((a, c) => a + c.lowStock, 0)
   const drawRect = getDrawRect()
 
@@ -1081,13 +1250,14 @@ export default function DepotPage() {
             {totalLowStock > 0 && (
               <div style={{background:'var(--red)',color:'#fff',borderRadius:20,padding:'2px 10px',fontSize:12,fontWeight:700,cursor:'pointer'}}
                 onClick={() => setView('list')} title="Voir les stocks bas">
-                ⚠️ {totalLowStock} stock{totalLowStock>1?'s':''} bas
+                ⚠️ {totalLowStock} bas
               </div>
             )}
           </div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             <button className={`btn btn-sm ${view==='grid'?'btn-primary':'btn-secondary'}`} onClick={() => setView('grid')}>Grille</button>
             <button className={`btn btn-sm ${view==='list'?'btn-primary':'btn-secondary'}`} onClick={() => setView('list')}>Liste</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowGlobalSearch(true)} title="Recherche globale (Ctrl+K)">🔍</button>
             {isEditor && (
               <button className={`btn btn-sm ${dragMode?'btn-primary':'btn-secondary'}`}
                 onClick={() => { setDragMode(m => !m); setRoomDrawMode(false) }} title="Mode déplacement">↕️</button>
@@ -1097,6 +1267,13 @@ export default function DepotPage() {
                 onClick={() => { setRoomDrawMode(m => !m); setDragMode(false) }} title="Dessiner une pièce">✏️🏠</button>
             )}
             <button className="btn btn-secondary btn-sm" onClick={() => setShowGridSettings(true)} title="Réglages grille">⚙️</button>
+            <div style={{display:'flex',alignItems:'center',gap:2,background:'var(--bg3)',borderRadius:8,border:'1.5px solid var(--border)',padding:'2px 4px'}}>
+              <button className="btn btn-ghost btn-sm btn-icon" style={{padding:'2px 6px',fontSize:14}} title="Zoom −"
+                onClick={() => { const z = Math.max(0.6, clampedZoom - 0.2); setGridZoom(z); try { localStorage.setItem('gridZoom', z) } catch {} }}>−</button>
+              <span style={{fontSize:11,fontWeight:600,color:'var(--text2)',minWidth:32,textAlign:'center'}}>{Math.round(clampedZoom * 100)}%</span>
+              <button className="btn btn-ghost btn-sm btn-icon" style={{padding:'2px 6px',fontSize:14}} title="Zoom +"
+                onClick={() => { const z = Math.min(2.0, clampedZoom + 0.2); setGridZoom(z); try { localStorage.setItem('gridZoom', z) } catch {} }}>+</button>
+            </div>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowExport(true)} title="Exporter PDF">📄</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowScanner(true)} title="Scanner QR">📷</button>
             {isEditor && <button className="btn btn-secondary btn-sm" onClick={() => setShowImportCSV(true)} title="Importer CSV">📥</button>}
@@ -1105,9 +1282,9 @@ export default function DepotPage() {
             {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddShelf(true)}>+ Étagère</button>}
           </div>
         </div>
-        {dragMode && <p style={{fontSize:12,color:'var(--indigo)',marginTop:6,fontWeight:500}}>↕️ Glisse une étagère vers une case vide pour la déplacer</p>}
-        {roomDrawMode && <p style={{fontSize:12,color:'var(--violet)',marginTop:6,fontWeight:500}}>✏️ Clique et glisse sur la grille pour dessiner une pièce — Echap pour annuler</p>}
-        <input className="input" style={{marginTop:12}} placeholder="🔍 Rechercher une étagère..." value={search} onChange={e => setSearch(e.target.value)}/>
+        {dragMode && <p style={{fontSize:12,color:'var(--indigo)',marginTop:6,fontWeight:500}}>↕️ Glisse une étagère vers une case vide · clique ↕️ pour quitter</p>}
+        {roomDrawMode && <p style={{fontSize:12,color:'var(--violet)',marginTop:6,fontWeight:500}}>✏️ Clique et glisse pour dessiner une pièce · Echap pour annuler</p>}
+        <input className="input" style={{marginTop:12}} placeholder="🔍 Rechercher une étagère... · Ctrl+K pour chercher les produits" value={search} onChange={e => setSearch(e.target.value.slice(0, 200))}/>
       </div>
 
       <div className="page-content">
@@ -1121,31 +1298,27 @@ export default function DepotPage() {
               <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:16,alignItems:'center'}}>
                 {zones.map(z => (
                   <div key={z.id} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)'}}>
-                    <div style={{width:12,height:12,borderRadius:3,background:z.color}}/>
-                    {z.name}
+                    <div style={{width:12,height:12,borderRadius:3,background:z.color}}/>{z.name}
                   </div>
                 ))}
                 {rooms.length > 0 && <span style={{width:1,height:14,background:'var(--border)',display:'inline-block'}}/>}
                 {rooms.map(r => (
                   <div key={r.id} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)',cursor:isEditor?'pointer':'default'}}
                     onClick={isEditor ? () => { setEditRoom(r); setShowRoomModal(true) } : undefined}>
-                    <div style={{width:12,height:12,borderRadius:3,background:r.color}}/>
-                    🏠 {r.name}
+                    <div style={{width:12,height:12,borderRadius:3,background:r.color}}/>🏠 {r.name}
                   </div>
                 ))}
               </div>
             )}
 
             <div style={{overflowX:'auto',paddingBottom:8}}
-              onMouseLeave={() => { if (roomDrawMode && drawStart) { setDrawStart(null); setDrawHover(null) } }}>
-              <div style={{position:'relative',width:'fit-content',userSelect: roomDrawMode ? 'none' : 'auto'}}>
-                {/* SVG overlay: rooms + draw preview */}
+              onMouseLeave={() => { if (roomDrawMode) { setDrawStart(null); setDrawHover(null) } }}>
+              <div style={{position:'relative',width:'fit-content',userSelect:roomDrawMode?'none':'auto'}}>
                 {(() => {
                   const gap = 4, pad = 10
                   const totalW = gridCols * cellSize + (gridCols - 1) * gap + pad * 2
                   const totalH = gridRows * cellSize + (gridRows - 1) * gap + pad * 2
-                  const showSVG = rooms.length > 0 || drawRect
-                  if (!showSVG) return null
+                  if (rooms.length === 0 && !drawRect) return null
                   return (
                     <svg width={totalW} height={totalH} style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2,borderRadius:'var(--radius-lg)'}}>
                       {rooms.map(room => {
@@ -1155,9 +1328,9 @@ export default function DepotPage() {
                         const rh = room.grid_h * cellSize + (room.grid_h - 1) * gap
                         return (
                           <g key={room.id} onClick={isEditor ? () => { setEditRoom(room); setShowRoomModal(true) } : undefined}
-                            style={{pointerEvents: isEditor ? 'auto' : 'none', cursor: isEditor ? 'pointer' : 'default'}}>
-                            <rect x={rx} y={ry} width={rw} height={rh} fill={room.color + '18'} stroke={room.color} strokeWidth={2} rx={8}/>
-                            <rect x={rx+4} y={ry+2} width={Math.min(rw-8, room.name.length * 7 + 12)} height={17} fill={room.color + 'CC'} rx={4}/>
+                            style={{pointerEvents:isEditor?'auto':'none',cursor:isEditor?'pointer':'default'}}>
+                            <rect x={rx} y={ry} width={rw} height={rh} fill={room.color+'18'} stroke={room.color} strokeWidth={2} rx={8}/>
+                            <rect x={rx+4} y={ry+2} width={Math.min(rw-8,room.name.length*7+12)} height={17} fill={room.color+'CC'} rx={4}/>
                             <text x={rx+10} y={ry+13} fill="#fff" fontSize={10} fontWeight="700" fontFamily="Inter,system-ui,sans-serif">{room.name}</text>
                           </g>
                         )
@@ -1167,26 +1340,13 @@ export default function DepotPage() {
                         const ry = pad + drawRect.y * (cellSize + gap)
                         const rw = drawRect.w * cellSize + (drawRect.w - 1) * gap
                         const rh = drawRect.h * cellSize + (drawRect.h - 1) * gap
-                        return (
-                          <rect x={rx} y={ry} width={rw} height={rh}
-                            fill="#7C3AED22" stroke="#7C3AED" strokeWidth={2} strokeDasharray="6 3" rx={8}/>
-                        )
+                        return <rect x={rx} y={ry} width={rw} height={rh} fill="#7C3AED22" stroke="#7C3AED" strokeWidth={2} strokeDasharray="6 3" rx={8}/>
                       })()}
                     </svg>
                   )
                 })()}
 
-                <div style={{
-                  display:'grid',
-                  gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,
-                  gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,
-                  gap:4,
-                  background:'var(--bg3)',
-                  border:'1px solid var(--border)',
-                  borderRadius:'var(--radius-lg)',
-                  padding:10,
-                  width:'fit-content',
-                }}>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content'}}>
                 {cells.map(({ x, y, shelf: cell }) => {
                   const w = Math.max(1, cell?.grid_w || 1)
                   const h = Math.max(1, cell?.grid_h || 1)
@@ -1194,50 +1354,35 @@ export default function DepotPage() {
                   const isDragging = dragShelfId === cell?.id
                   const counts = cell ? (productCounts[cell.id] || { total: 0, lowStock: 0 }) : null
                   return (
-                    <div
-                      key={`${x}-${y}`}
-                      className={`grid-cell ${cell ? 'occupied' : 'empty-cell'}`}
+                    <div key={`${x}-${y}`} className={`grid-cell ${cell ? 'occupied' : 'empty-cell'}`}
                       style={{
-                        gridColumnStart: x+1, gridRowStart: y+1,
-                        gridColumnEnd: `span ${w}`, gridRowEnd: `span ${h}`,
-                        ...(cell ? { background: bg, border: `1px solid ${bg}`, opacity: isDragging ? 0.5 : 1 } : {}),
-                        cursor: roomDrawMode ? 'crosshair' : dragMode ? (cell ? 'grab' : 'copy') : 'pointer',
-                        fontSize: cellSize < 44 ? 9 : 11,
-                        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                        textAlign:'center', overflow:'hidden', position:'relative',
+                        gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
+                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:isDragging?0.5:1} : {}),
+                        cursor:roomDrawMode?'crosshair':dragMode?(cell?'grab':'copy'):'pointer',
+                        fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
+                        justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
                       draggable={dragMode && !!cell && !roomDrawMode}
                       onDragStart={cell && !roomDrawMode ? () => setDragShelfId(cell.id) : undefined}
                       onDragEnd={() => setDragShelfId(null)}
                       onDragOver={e => { if (dragMode) e.preventDefault() }}
                       onDrop={() => { if (dragMode && !cell) handleDrop(x, y) }}
-                      onMouseDown={e => handleCellMouseDown(x, y, e)}
-                      onMouseEnter={() => handleCellMouseEnter(x, y)}
-                      onMouseUp={() => handleCellMouseUp(x, y)}
-                      onClick={() => {
-                        if (dragMode || roomDrawMode) return
-                        if (cell) setSelectedShelf(cell)
-                        else if (isEditor) setShowAddShelf(true)
-                      }}
+                      onMouseDown={e => { if (!roomDrawMode) return; e.preventDefault(); setDrawStart({x,y}); setDrawHover({x,y}) }}
+                      onMouseEnter={() => { if (roomDrawMode && drawStart) setDrawHover({x,y}) }}
+                      onMouseUp={() => { if (!roomDrawMode || !drawStart) return; const rect = getDrawRect(); if (rect) { setEditRoom({grid_x:rect.x,grid_y:rect.y,grid_w:rect.w,grid_h:rect.h}); setShowRoomModal(true) } setDrawStart(null); setDrawHover(null); setRoomDrawMode(false) }}
+                      onClick={() => { if (dragMode || roomDrawMode) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >
                       {cell ? (
                         <>
                           <span style={{overflow:'hidden',display:'block',padding:'0 2px',lineHeight:1.2,wordBreak:'break-word'}}>
-                            {cell.name.substring(0, cellSize < 44 ? 4 : 7)}
-                            {(w > 1 || h > 1) && <span style={{display:'block',fontSize:8,opacity:0.7}}>{w}×{h}</span>}
+                            {cell.name.substring(0, cellSize<44?4:7)}
+                            {(w>1||h>1) && <span style={{display:'block',fontSize:8,opacity:0.7}}>{w}×{h}</span>}
                           </span>
-                          {/* Product count badge */}
                           {counts && counts.total > 0 && (
                             <div style={{position:'absolute',bottom:2,right:2,display:'flex',gap:2,alignItems:'center'}}>
-                              {counts.lowStock > 0 && (
-                                <span style={{fontSize:8,lineHeight:1,background:'rgba(220,38,38,0.9)',color:'#fff',borderRadius:4,padding:'1px 3px',fontWeight:700}}>
-                                  ⚠️
-                                </span>
-                              )}
-                              <span style={{fontSize:8,lineHeight:1,background:'rgba(0,0,0,0.35)',color:'#fff',borderRadius:4,padding:'1px 4px',fontWeight:600}}>
-                                {counts.total}
-                              </span>
+                              {counts.lowStock > 0 && <span style={{fontSize:8,lineHeight:1,background:'rgba(220,38,38,0.9)',color:'#fff',borderRadius:4,padding:'1px 3px',fontWeight:700}}>⚠️</span>}
+                              <span style={{fontSize:8,lineHeight:1,background:'rgba(0,0,0,0.55)',color:'#fff',borderRadius:4,padding:'1px 4px',fontWeight:700}}>{counts.total}</span>
                             </div>
                           )}
                         </>
@@ -1251,9 +1396,7 @@ export default function DepotPage() {
               </div>
             </div>
             <p style={{color:'var(--text3)',fontSize:12,marginTop:10,textAlign:'center'}}>
-              {roomDrawMode ? '✏️ Clique et glisse pour dessiner une pièce'
-                : dragMode ? '↕️ Glisse les étagères · clique ↕️ pour quitter'
-                : 'Appuie sur une case pour voir son contenu · le badge = nombre de produits'}
+              {roomDrawMode?'✏️ Clique et glisse pour dessiner une pièce':dragMode?'↕️ Glisse les étagères':'Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits'}
             </p>
           </>
         ) : (
@@ -1274,7 +1417,7 @@ export default function DepotPage() {
                     : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📦</div>
                   }
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                    <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                       {s.name}
                       {counts.lowStock > 0 && <span style={{fontSize:11,background:'rgba(220,38,38,0.1)',color:'var(--red)',borderRadius:12,padding:'1px 7px',fontWeight:700}}>⚠️ {counts.lowStock} bas</span>}
                     </div>
@@ -1300,31 +1443,18 @@ export default function DepotPage() {
       )}
       {selectedShelf && (
         <ShelfDetailModal shelf={selectedShelf} onClose={() => setSelectedShelf(null)}
-          onEdit={() => { setEditShelf(selectedShelf); setSelectedShelf(null) }}
+          onEdit={() => { setSelectedShelf(null); setEditShelf(selectedShelf) }}
           onDelete={() => handleDelete(selectedShelf.id)}
-          isEditor={isEditor}/>
+          isEditor={isEditor}
+          onRefresh={loadAll}/>
       )}
-      {showGridSettings && (
-        <GridSettingsModal onClose={() => setShowGridSettings(false)}
-          onApply={() => { const { cols, rows } = getGridSettings(); setGridCols(cols); setGridRows(rows) }}/>
-      )}
+      {showGridSettings && <GridSettingsModal onClose={() => setShowGridSettings(false)} onApply={() => { loadAll() }}/>}
       {showExport && <ExportModal shelves={shelves} onClose={() => setShowExport(false)}/>}
-      {showScanner && (
-        <QRScannerModal shelves={shelves}
-          onFound={shelf => { setSelectedShelf(shelf) }}
-          onClose={() => setShowScanner(false)}/>
-      )}
-      {showImportCSV && (
-        <ImportCSVModal shelves={shelves}
-          onClose={() => setShowImportCSV(false)}
-          onDone={loadAll}/>
-      )}
+      {showScanner && <QRScannerModal shelves={shelves} onFound={s => { setShowScanner(false); setSelectedShelf(s) }} onClose={() => setShowScanner(false)}/>}
+      {showImportCSV && <ImportCSVModal shelves={shelves} onClose={() => setShowImportCSV(false)} onDone={() => { setShowImportCSV(false); loadAll() }}/>}
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)}/>}
-      {showRoomModal && (
-        <RoomModal room={editRoom} gridCols={gridCols} gridRows={gridRows}
-          onClose={() => { setShowRoomModal(false); setEditRoom(null) }}
-          onSave={loadAll}/>
-      )}
+      {showGlobalSearch && <GlobalSearchModal onShelfSelect={s => { setShowGlobalSearch(false); setSelectedShelf(s) }} onClose={() => setShowGlobalSearch(false)}/>}
+      {showRoomModal && <RoomModal room={editRoom} gridCols={gridCols} gridRows={gridRows} onClose={() => { setShowRoomModal(false); setEditRoom(null) }} onSave={() => { setShowRoomModal(false); setEditRoom(null); loadAll() }}/>}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
@@ -8,11 +8,21 @@ export default function AuthPage() {
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
+  const [attempts, setAttempts] = useState(0)
+  const [cooldown, setCooldown] = useState(0)
   const { signIn, signUp }    = useAuth()
   const toast                 = useToast()
 
+  // Client-side rate limit: after 5 failed attempts, 30s cooldown
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setInterval(() => setCooldown(c => { if (c <= 1) { clearInterval(t); return 0 } return c - 1 }), 1000)
+    return () => clearInterval(t)
+  }, [cooldown > 0])
+
   async function handleSubmit(e) {
     e.preventDefault()
+    if (cooldown > 0) return
     setLoading(true)
     try {
       if (mode === 'login') {
@@ -26,13 +36,18 @@ export default function AuthPage() {
       }
     } catch (err) {
       toast(err.message || 'Erreur', 'error')
+      if (mode === 'login') {
+        const next = attempts + 1
+        setAttempts(next)
+        if (next >= 5) { setCooldown(30); setAttempts(0); toast('Trop de tentatives — attends 30s', 'error') }
+      }
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', background: 'var(--bg)' /* light gray */ }}>
       {/* Logo */}
       <div style={{ marginBottom: 36, textAlign: 'center' }}>
         <svg viewBox="0 0 120 60" width="120" height="60" xmlns="http://www.w3.org/2000/svg">
@@ -52,9 +67,9 @@ export default function AuthPage() {
           <rect x="35" y="11" width="8" height="16" rx="2" fill="#818CF8" opacity="0.7"/>
           <rect x="8" y="37" width="14" height="16" rx="2" fill="#A78BFA" opacity="0.9"/>
           <rect x="26" y="40" width="9" height="13" rx="2" fill="#818CF8" opacity="0.8"/>
-          <text x="52" y="42" fontSize="26" fontWeight="800" fill="#E8E6F0" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
+          <text x="52" y="42" fontSize="26" fontWeight="800" fill="#111118" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
         </svg>
-        <p style={{ color: 'var(--text3)', fontSize: 12, letterSpacing: 2, marginTop: 6, textTransform: 'uppercase' }}>Gestion de dépôt</p>
+        <p style={{ color: 'var(--text2)', fontSize: 12, letterSpacing: 2, marginTop: 6, textTransform: 'uppercase' }}>Gestion de dépôt</p>
       </div>
 
       {/* Card */}
@@ -79,8 +94,8 @@ export default function AuthPage() {
             <input className="input" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}/>
           </div>
 
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
-            {loading ? <span className="spinner" style={{ borderTopColor: '#fff' }}/> : mode === 'login' ? 'Se connecter' : "Créer le compte"}
+          <button className="btn btn-primary" type="submit" disabled={loading || cooldown > 0} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
+            {loading ? <span className="spinner" style={{ borderTopColor: '#fff' }}/> : cooldown > 0 ? `Attends ${cooldown}s...` : mode === 'login' ? 'Se connecter' : "Créer le compte"}
           </button>
         </form>
 

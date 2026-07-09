@@ -6,6 +6,7 @@ import AuthPage   from './pages/AuthPage'
 import DepotPage  from './pages/DepotPage'
 import PowerPage  from './pages/PowerPage'
 import AdminPage  from './pages/AdminPage'
+import AudioPage  from './pages/AudioPage'
 import { supabase } from './lib/supabase'
 
 // ── Shelf deep-link handler ────────────────────────────
@@ -30,6 +31,7 @@ function BottomNav({ active, onChange }) {
   const tabs = [
     { id: 'depot',  icon: '🏭', label: 'Dépôt'  },
     { id: 'power',  icon: '⚡', label: 'Watts'  },
+    { id: 'audio',  icon: '🔊', label: 'Son'    },
     { id: 'admin',  icon: '👤', label: 'Compte' },
   ]
   return (
@@ -53,7 +55,8 @@ function AppShell() {
   useEffect(() => {
     const path = window.location.pathname
     const base = import.meta.env.BASE_URL.replace(/\/$/, '')
-    const m    = path.match(new RegExp(`^${base}/shelf/(.+)$`))
+    const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const m    = path.match(new RegExp(`^${escapedBase}/shelf/([a-f0-9-]{36})$`, 'i'))
     if (m) {
       setTab('depot')
       window.__pendingShelfId = m[1]
@@ -62,7 +65,7 @@ function AppShell() {
   }, [])
 
   if (loading) return (
-    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg2)' }}>
       <div style={{ textAlign: 'center' }}>
         <svg viewBox="0 0 80 40" width="80" height="40" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:16}}>
           <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
@@ -75,7 +78,7 @@ function AppShell() {
           <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#A78BFA" opacity="0.8"/>
           <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#A78BFA" opacity="0.9"/>
           <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#818CF8" opacity="0.8"/>
-          <text x="36" y="28" fontSize="18" fontWeight="800" fill="#E8E6F0" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
+          <text x="36" y="28" fontSize="18" fontWeight="800" fill="#111118" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
         </svg>
         <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto' }}/>
       </div>
@@ -89,7 +92,7 @@ function AppShell() {
       {updateAvailable && (
         <div style={{
           position:'fixed', top:0, left:0, right:0, zIndex:9999,
-          background:'linear-gradient(90deg,var(--indigo),var(--violet))',
+          background:'var(--indigo2)',
           color:'#fff', padding:'10px 16px',
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           fontSize:14, fontWeight:600, boxShadow:'0 2px 16px rgba(0,0,0,0.4)',
@@ -105,13 +108,15 @@ function AppShell() {
       <div className="app-content">
         {tab === 'depot' && <DepotPage/>}
         {tab === 'power' && <PowerPage/>}
+        {tab === 'audio' && <AudioPage/>}
         {tab === 'admin' && <AdminPage/>}
       </div>
     </div>
   )
 }
 
-export default function App() {
+export default
+function App() {
   return (
     <AuthProvider>
       <ToastProvider>
