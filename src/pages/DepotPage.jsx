@@ -404,6 +404,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
 
 // ── Add Product Form ───────────────────────────────────────────
 function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
+  const [mode,        setMode]        = useState('new') // 'new' | 'existing'
   const [name,        setName]        = useState('')
   const [ref,         setRef]         = useState('')
   const [qty,         setQty]         = useState(1)
@@ -415,7 +416,46 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
   const [imgFile,     setImgFile]     = useState(null)
   const [imgPrev,     setImgPrev]     = useState(null)
   const [loading,     setLoading]     = useState(false)
+  // existing stock picker
+  const [stockSearch,  setStockSearch]  = useState('')
+  const [stockResults, setStockResults] = useState([])
+  const [stockLoading, setStockLoading] = useState(false)
+  const stockTimer = useRef(null)
   const toast = useToast()
+
+  useEffect(() => {
+    if (mode !== 'existing') return
+    clearTimeout(stockTimer.current)
+    stockTimer.current = setTimeout(async () => {
+      setStockLoading(true)
+      let q = supabase.from('products').select('*, shelves(name)')
+        .neq('shelf_id', shelfId).order('name').limit(40)
+      const s = stockSearch.trim()
+      if (s) q = q.or(`name.ilike.%${s}%,reference.ilike.%${s}%,tags.ilike.%${s}%`)
+      const { data } = await q
+      setStockResults(data || [])
+      setStockLoading(false)
+    }, 250)
+    return () => clearTimeout(stockTimer.current)
+  }, [stockSearch, mode])
+
+  async function handlePickExisting(product) {
+    setLoading(true)
+    try {
+      const { error: insErr } = await supabase.from('products').insert({
+        name: product.name, reference: product.reference,
+        quantity: product.quantity, min_quantity: product.min_quantity,
+        unit: product.unit, description: product.description,
+        tags: product.tags, image_url: product.image_url,
+        shelf_id: shelfId, section_id: null,
+      })
+      if (insErr) throw insErr
+      await logMovement('add', product.name, shelfName, shelfId, product.quantity)
+      toast(`${product.name} ajouté depuis le stock`, 'success')
+      onSave()
+    } catch(err) { toast(err.message, 'error') }
+    finally { setLoading(false) }
+  }
 
   async function handleSave() {
     if (!name.trim()) { toast('Nom requis', 'error'); return }
@@ -423,11 +463,12 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
     try {
       let imageUrl = null
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
-      await supabase.from('products').insert({
+      const { error: insErr } = await supabase.from('products').insert({
         name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
         unit, description: desc, tags: tags.trim(),
         shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
       })
+      if (insErr) throw insErr
       await logMovement('add', name.trim(), shelfName, shelfId, +qty)
       toast('Produit ajouté', 'success')
       onSave()
@@ -437,7 +478,52 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
 
   return (
     <>
-      <h3 className="modal-title">Nouveau produit</h3>
+      <h3 className="modal-title">{mode === 'existing' ? '📦 Depuis le stock' : 'Nouveau produit'}</h3>
+
+      {/* Mode toggle */}
+      <div style={{display:'flex',gap:6,marginBottom:16}}>
+        <button className={`btn btn-sm ${mode==='new'?'btn-primary':'btn-secondary'}`} onClick={() => setMode('new')}>✨ Nouveau</button>
+        <button className={`btn btn-sm ${mode==='existing'?'btn-primary':'btn-secondary'}`} onClick={() => { setMode('existing'); setStockSearch('') }}>📦 Depuis le stock</button>
+      </div>
+
+      {mode === 'existing' ? (
+        <div>
+          <input className="input" placeholder="Rechercher dans tout le stock..." value={stockSearch}
+            onChange={e => setStockSearch(e.target.value)} style={{marginBottom:12}} autoFocus/>
+          {stockLoading ? (
+            <div style={{display:'flex',justifyContent:'center',padding:24}}><span className="spinner"/></div>
+          ) : stockResults.length === 0 ? (
+            <div className="empty" style={{padding:'20px 0'}}>
+              <div className="empty-icon" style={{fontSize:32}}>📦</div>
+              <p>{stockSearch ? 'Aucun résultat' : 'Tape pour chercher'}</p>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflowY:'auto'}}>
+              {stockResults.map(p => (
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
+                  {p.image_url
+                    ? <img src={p.image_url} style={{width:40,height:40,borderRadius:6,objectFit:'cover',flexShrink:0}} alt=""/>
+                    : <div style={{width:40,height:40,borderRadius:6,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>📦</div>
+                  }
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                    <div style={{fontSize:12,color:'var(--text3)'}}>
+                      {p.shelves?.name && <span>📍 {p.shelves.name} · </span>}
+                      Qté: {p.quantity} {p.unit}
+                      {p.reference && <span> · {p.reference}</span>}
+                    </div>
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={() => handlePickExisting(p)} disabled={loading}>+ Ajouter</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="form-actions" style={{marginTop:16}}>
+            <button className="btn btn-secondary" onClick={onCancel}>Annuler</button>
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="form-group"><label className="label">Nom</label>
         <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Machine à fumée" maxLength={255}/>
       </div>
@@ -491,6 +577,8 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
           {loading ? <span className="spinner" style={{borderTopColor:'#fff'}}/> : 'Ajouter'}
         </button>
       </div>
+      </>
+      )}
     </>
   )
 }
@@ -847,7 +935,7 @@ function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
   )
 }
 
-// ── QR Scanner Modal ───────────────────────────────────────────
+// ── QR Scanner Modal (jsQR — fonctionne sur iOS, Android, desktop) ──
 function QRScannerModal({ shelves, onFound, onClose }) {
   const [scanning, setScanning] = useState(false)
   const [status,   setStatus]   = useState('')
@@ -858,46 +946,47 @@ function QRScannerModal({ shelves, onFound, onClose }) {
     if (!file) return
     setScanning(true); setStatus('Analyse du QR code...')
     try {
-      if (!('BarcodeDetector' in window)) {
-        toast('Scanner non disponible sur ce navigateur. Utilise Chrome ou Edge.', 'error')
-        setScanning(false); setStatus(''); return
-      }
-      const bitmap = await createImageBitmap(file)
-      const detector = new BarcodeDetector({ formats: ['qr_code'] })
-      const barcodes = await detector.detect(bitmap)
-      if (barcodes.length === 0) { toast('Aucun QR code détecté', 'error'); setScanning(false); setStatus(''); return }
-      const value = barcodes[0].rawValue
-      const match = value.match(/\/shelf\/([a-f0-9-]{36})/i)
-      if (!match) { toast('QR code non reconnu', 'error'); setScanning(false); return }
+      const jsQR = (await import('jsqr')).default
+      const img    = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      // Limite la résolution pour éviter les timeout sur mobile
+      const MAX = 1200
+      const ratio = Math.min(1, MAX / Math.max(img.width, img.height))
+      canvas.width  = Math.round(img.width  * ratio)
+      canvas.height = Math.round(img.height * ratio)
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      if (!code) { toast('Aucun QR code détecté — réessaie avec une meilleure lumière', 'error'); setScanning(false); setStatus(''); return }
+      const match = code.data.match(/\/shelf\/([a-f0-9-]{36})/i)
+      if (!match) { toast('QR code non reconnu (pas un QR Stockr)', 'error'); setScanning(false); setStatus(''); return }
       const shelf = shelves.find(s => s.id === match[1])
       if (!shelf) { toast('Étagère introuvable', 'error'); setScanning(false); return }
       setStatus('Étagère trouvée !')
-      setTimeout(() => { onFound(shelf); onClose() }, 500)
-    } catch(err) { toast('Erreur scan : ' + err.message, 'error'); setScanning(false); setStatus('') }
+      setTimeout(() => { onFound(shelf); onClose() }, 400)
+    } catch(err) { toast('Erreur : ' + err.message, 'error'); setScanning(false); setStatus('') }
   }
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3 className="modal-title">📷 Scanner un QR Code</h3>
-        {'BarcodeDetector' in window ? (
-          <>
-            <p style={{color:'var(--text2)',fontSize:14,marginBottom:16}}>Prends une photo du QR code d'une étagère pour l'ouvrir directement.</p>
-            <label style={{display:'block',cursor:'pointer'}}>
-              <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={handleFile} disabled={scanning}/>
-              <div style={{border:'2px dashed var(--border)',borderRadius:12,padding:'40px 20px',textAlign:'center',background:'var(--bg3)'}}>
-                {scanning ? <><span className="spinner" style={{width:32,height:32}}/><p style={{marginTop:12,color:'var(--text2)',fontSize:13}}>{status}</p></>
-                  : <><div style={{fontSize:48}}>📷</div><p style={{marginTop:8,fontWeight:600}}>Appuyer pour scanner</p><p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Ouvre la caméra ou la galerie</p></>}
-              </div>
-            </label>
-          </>
-        ) : (
-          <div style={{padding:'20px 0',textAlign:'center'}}>
-            <div style={{fontSize:40,marginBottom:12}}>⚠️</div>
-            <p style={{color:'var(--text2)',fontSize:14}}>Le scanner QR nécessite Chrome ou Edge.</p>
-            <p style={{color:'var(--text3)',fontSize:12,marginTop:8}}>Sur iOS, l'appareil photo reconnaît les QR codes automatiquement.</p>
+        <p style={{color:'var(--text2)',fontSize:14,marginBottom:16}}>
+          Prends une photo du QR code d'une étagère pour l'ouvrir directement.<br/>
+          <span style={{fontSize:12,color:'var(--text3)'}}>Fonctionne sur iOS, Android et desktop.</span>
+        </p>
+        <label style={{display:'block',cursor:'pointer'}}>
+          <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={handleFile} disabled={scanning}/>
+          <div style={{border:'2px dashed var(--border)',borderRadius:12,padding:'40px 20px',textAlign:'center',background:'var(--bg3)',transition:'border-color 0.15s',cursor:'pointer'}}
+            onMouseEnter={e => e.currentTarget.style.borderColor='var(--indigo2)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
+            {scanning
+              ? <><span className="spinner" style={{width:36,height:36}}/><p style={{marginTop:14,color:'var(--text2)',fontSize:13,fontWeight:500}}>{status}</p></>
+              : <><div style={{fontSize:52}}>📷</div><p style={{marginTop:10,fontWeight:700,fontSize:15}}>Appuyer pour scanner</p><p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Ouvre la caméra ou la galerie</p></>
+            }
           </div>
-        )}
+        </label>
         <div className="form-actions" style={{marginTop:16}}>
           <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
         </div>
@@ -1524,6 +1613,7 @@ export default function DepotPage() {
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
                         ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:(isDragging||wiggleId===cell?.id)?0.85:1} : {}),
                         cursor:roomDrawMode?'crosshair':wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
+                        touchAction: cell && isEditor && !roomDrawMode ? 'none' : 'auto',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
@@ -1535,7 +1625,7 @@ export default function DepotPage() {
                       onPointerDown={e => {
                         if (roomDrawMode) { e.preventDefault(); setDrawStart({x,y}); setDrawHover({x,y}); return }
                         if (!cell || !isEditor) return
-                        e.currentTarget.setPointerCapture(e.pointerId)
+                        e.preventDefault()
                         longPressRef.current = setTimeout(() => {
                           setWiggleId(cell.id)
                           navigator.vibrate?.(40)
@@ -1555,7 +1645,7 @@ export default function DepotPage() {
                         }
                       }}
                       onPointerCancel={() => { clearTimeout(longPressRef.current); setWiggleId(null); setDropTarget(null) }}
-                      onMouseEnter={() => { if (roomDrawMode && drawStart) setDrawHover({x,y}) }}
+                      onPointerEnter={() => { if (roomDrawMode && drawStart) setDrawHover({x,y}) }}
                       onClick={() => { if (dragMode || roomDrawMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >

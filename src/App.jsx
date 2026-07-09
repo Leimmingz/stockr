@@ -71,6 +71,14 @@ function AppShell() {
       window.__pendingShelfId = m[1]
       window.history.replaceState(null, '', base + '/')
     }
+    // PWA back button: push a dummy state so Android back doesn't exit the app
+    window.history.pushState({ stockr: true }, '')
+    const handlePop = () => {
+      // Re-push so the next back press is also intercepted
+      window.history.pushState({ stockr: true }, '')
+    }
+    window.addEventListener('popstate', handlePop)
+    return () => window.removeEventListener('popstate', handlePop)
   }, [])
 
   if (loading) return (
