@@ -1,23 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { compressAndUpload } from '../lib/imageUtils'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024 // 5 MB
 
-async function uploadImage(file, bucket, path) {
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) throw new Error('Format non supporté (jpg, png, webp, gif uniquement)')
-  if (file.size > MAX_IMAGE_SIZE) throw new Error('Image trop lourde (max 5 Mo)')
-  const ext = file.name.split('.').pop().toLowerCase()
-  const name = `${path}_${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from(bucket).upload(name, file, { upsert: true })
-  if (error) throw error
-  const { data } = supabase.storage.from(bucket).getPublicUrl(name)
-  return data.publicUrl
-}
+
 
 // ── Extract specs from image/PDF via Edge Function proxy ─────
 async function extractSpecsFromFile(file) {
@@ -112,7 +102,7 @@ function ProjectorModal({ projector, onClose, onSave }) {
     setLoading(true)
     try {
       let imageUrl = projector?.image_url || null
-      if (imgFile) imageUrl = await uploadImage(imgFile, 'projector-images', `proj_${form.name.replace(/\s/g,'_')}`)
+      if (imgFile) imageUrl = await compressAndUpload(imgFile, 'projector-images', `proj_${form.name.replace(/\s/g,'_')}`)
       const payload = { name: form.name.trim(), brand: form.brand || null, model: form.model || null, watts: +form.watts, voltage: +form.voltage || 230, power_factor: +form.power_factor || 1.0, dmx_channels: form.dmx_channels ? +form.dmx_channels : null, weight_kg: form.weight_kg ? +form.weight_kg : null, image_url: imageUrl }
       if (projector?.id) {
         await supabase.from('projectors').update(payload).eq('id', projector.id)

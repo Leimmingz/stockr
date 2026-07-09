@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import QRCode from 'qrcode'
+import { compressAndUpload } from '../lib/imageUtils'
 
 // ── Constants ─────────────────────────────────────────────────
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
@@ -120,7 +121,7 @@ function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
     setLoading(true)
     try {
       let imageUrl = shelf?.image_url || null
-      if (imgFile) imageUrl = await uploadImage(imgFile, 'depot-images', `shelf_${name.replace(/\s/g,'_')}`)
+      if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `shelf_${name.replace(/\s/g,'_')}`)
       const payload = {
         name: name.trim(), zone_id: zoneId || null, description: desc,
         grid_x: +gridX, grid_y: +gridY, grid_w: Math.max(1,+gridW), grid_h: Math.max(1,+gridH),
@@ -137,7 +138,7 @@ function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
         savedShelf = data
         const qrData = await generateQR(savedShelf.id)
         const blob = await fetch(qrData).then(r => r.blob())
-        const qrUrl = await uploadImage(new File([blob], 'qr.png', { type: 'image/png' }), 'qr-codes', `qr_${savedShelf.id}`)
+        const qrUrl = await compressAndUpload(new File([blob], 'qr.png', { type: 'image/png' }), 'qr-codes', `qr_${savedShelf.id}`)
         await supabase.from('shelves').update({ qr_code_url: qrUrl }).eq('id', savedShelf.id)
         savedShelf.qr_code_url = qrUrl
       }
@@ -278,7 +279,7 @@ function AddProductForm({ shelfId, sections, onSave, onCancel }) {
     setLoading(true)
     try {
       let imageUrl = null
-      if (imgFile) imageUrl = await uploadImage(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
+      if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
       await supabase.from('products').insert({
         name: name.trim(), reference: ref, quantity: +qty, unit,
         description: desc, shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
