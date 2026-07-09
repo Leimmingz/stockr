@@ -18,7 +18,7 @@ export default function AuthPage() {
     if (cooldown <= 0) return
     const t = setInterval(() => setCooldown(c => { if (c <= 1) { clearInterval(t); return 0 } return c - 1 }), 1000)
     return () => clearInterval(t)
-  }, [cooldown > 0])
+  }, [cooldown])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -30,6 +30,10 @@ export default function AuthPage() {
         toast('Bienvenue !', 'success')
       } else {
         if (!username.trim()) { toast('Pseudo requis', 'error'); setLoading(false); return }
+        if (password.length < 6 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+          toast('Mot de passe invalide — min 6 caractères, une lettre et un chiffre', 'error')
+          setLoading(false); return
+        }
         await signUp(email, password, username.trim())
         toast('Compte créé — connecte-toi', 'success')
         setMode('login')
@@ -67,7 +71,7 @@ export default function AuthPage() {
           <rect x="35" y="11" width="8" height="16" rx="2" fill="#818CF8" opacity="0.7"/>
           <rect x="8" y="37" width="14" height="16" rx="2" fill="#A78BFA" opacity="0.9"/>
           <rect x="26" y="40" width="9" height="13" rx="2" fill="#818CF8" opacity="0.8"/>
-          <text x="52" y="42" fontSize="26" fontWeight="800" fill="#111118" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
+          <text x="52" y="42" fontSize="26" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
         </svg>
         <p style={{ color: 'var(--text2)', fontSize: 12, letterSpacing: 2, marginTop: 6, textTransform: 'uppercase' }}>Gestion de dépôt</p>
       </div>
@@ -92,6 +96,19 @@ export default function AuthPage() {
           <div className="form-group">
             <label className="label">Mot de passe</label>
             <input className="input" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}/>
+            {mode === 'register' && password.length > 0 && (
+              <div style={{display:'flex',gap:12,marginTop:6,fontSize:12,flexWrap:'wrap'}}>
+                <span style={{color: password.length >= 6 ? '#059669' : '#9898B0'}}>
+                  {password.length >= 6 ? '✅' : '○'} 6 caractères min
+                </span>
+                <span style={{color: /[a-zA-Z]/.test(password) ? '#059669' : '#9898B0'}}>
+                  {/[a-zA-Z]/.test(password) ? '✅' : '○'} une lettre
+                </span>
+                <span style={{color: /[0-9]/.test(password) ? '#059669' : '#9898B0'}}>
+                  {/[0-9]/.test(password) ? '✅' : '○'} un chiffre
+                </span>
+              </div>
+            )}
           </div>
 
           <button className="btn btn-primary" type="submit" disabled={loading || cooldown > 0} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>

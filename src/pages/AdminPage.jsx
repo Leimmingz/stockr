@@ -5,7 +5,7 @@ import { useToast } from '../hooks/useToast'
 import { useConfirm } from '../hooks/useConfirm'
 
 export default function AdminPage() {
-  const { profile, isAdmin, signOut, updateUserRole } = useAuth()
+  const { user, profile, isAdmin, signOut, updateUserRole } = useAuth()
   const toast   = useToast()
   const confirm = useConfirm()
   const [users,    setUsers]    = useState([])
@@ -37,7 +37,7 @@ export default function AdminPage() {
 
   async function handleDeleteUser(userId) {
     if (userId === profile?.id) { toast('Tu ne peux pas supprimer ton propre compte', 'error'); return }
-    if (!await confirm("Revoquer l'acces de cet utilisateur ?")) return
+    if (!await confirm("Revoquer l'acces de cet utilisateur ?", { confirmLabel: 'Revoquer', cancelLabel: 'Annuler' })) return
     const { error } = await supabase.from('profiles').delete().eq('id', userId)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     setUsers(u => u.filter(x => x.id !== userId))
@@ -46,11 +46,11 @@ export default function AdminPage() {
 
   async function handlePasswordChange(e) {
     e.preventDefault()
-    if (pwForm.next.length < 6) { toast('Mot de passe trop court (min 6 caracteres)', 'error'); return }
+    if (pwForm.next.length < 6 || !/[a-zA-Z]/.test(pwForm.next) || !/[0-9]/.test(pwForm.next)) { toast('Mot de passe trop court ou invalide (min 6 caracteres, une lettre et un chiffre)', 'error'); return }
     if (pwForm.next !== pwForm.confirm) { toast('Les mots de passe ne correspondent pas', 'error'); return }
     setPwLoading(true)
     try {
-      const { error: signInErr } = await supabase.auth.signInWithPassword({ email: profile.email, password: pwForm.current })
+      const { error: signInErr } = await supabase.auth.signInWithPassword({ email: user?.email || profile?.email, password: pwForm.current })
       if (signInErr) { toast('Mot de passe actuel incorrect', 'error'); setPwLoading(false); return }
       const { error } = await supabase.auth.updateUser({ password: pwForm.next })
       if (error) throw error
@@ -128,7 +128,7 @@ export default function AdminPage() {
         {tab === 'security' && (
           <div className="card">
             <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Changer le mot de passe</div>
-            <p style={{fontSize:13,color:'var(--text2)',marginBottom:20}}>Minimum 6 caracteres.</p>
+            <p style={{fontSize:13,color:'var(--text2)',marginBottom:20}}>Minimum 6 caractères, au moins une lettre et un chiffre.</p>
             <form onSubmit={handlePasswordChange}>
               <div className="form-group">
                 <label className="label">Mot de passe actuel</label>
@@ -139,6 +139,19 @@ export default function AdminPage() {
                 <label className="label">Nouveau mot de passe</label>
                 <input className="input" type="password" placeholder="••••••••" autoComplete="new-password" minLength={6}
                   value={pwForm.next} onChange={e => setPwForm(f => ({...f, next: e.target.value}))} required/>
+                {pwForm.next.length > 0 && (
+                  <div style={{display:'flex',gap:12,marginTop:6,fontSize:12}}>
+                    <span style={{color: pwForm.next.length >= 6 ? 'var(--green)' : 'var(--text3)'}}>
+                      {pwForm.next.length >= 6 ? '✅' : '○'} 6 caractères min
+                    </span>
+                    <span style={{color: /[a-zA-Z]/.test(pwForm.next) ? 'var(--green)' : 'var(--text3)'}}>
+                      {/[a-zA-Z]/.test(pwForm.next) ? '✅' : '○'} une lettre
+                    </span>
+                    <span style={{color: /[0-9]/.test(pwForm.next) ? 'var(--green)' : 'var(--text3)'}}>
+                      {/[0-9]/.test(pwForm.next) ? '✅' : '○'} un chiffre
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="label">Confirmer le nouveau mot de passe</label>

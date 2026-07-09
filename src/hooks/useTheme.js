@@ -14,7 +14,7 @@ export function useTheme() {
     try { return localStorage.getItem('theme') || 'system' } catch { return 'system' }
   })
 
-  useEffect(() => { applyTheme(theme) }, [])
+  useEffect(() => { applyTheme(theme) }, [theme])
 
   function setTheme(t) {
     setThemeState(t)

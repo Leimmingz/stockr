@@ -480,7 +480,7 @@ function CalcHistory() {
 
   const confirm = useConfirm()
   async function handleDelete(id) {
-    if (!await confirm('Supprimer ce calcul ?')) return
+    if (!await confirm('Supprimer ce calcul ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('power_calculations').delete().eq('id', id)
     if (error) { toast(error.message, 'error'); return }
     setHistory(h => h.filter(c => c.id !== id))
@@ -537,12 +537,12 @@ export default function MaterielPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: l }, { data: a, error: ae }] = await Promise.all([
+    const [{ data: l, error: le }, { data: a, error: ae }] = await Promise.all([
       supabase.from('projectors').select('*').order('name'),
       supabase.from('audio_equipment').select('*').order('name')
     ])
-    setLights(l || [])
-    if (!ae) setAudios(a || [])
+    if (!le) setLights(l || []); else console.warn('projectors load error:', le.message)
+    if (!ae) setAudios(a || []); else console.warn('audio_equipment load error:', ae.message)
     setLoading(false)
   }
 

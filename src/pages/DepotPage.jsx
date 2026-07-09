@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { useToast } from '../hooks/useToast'
+import { useToast }   from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 import QRCode from 'qrcode'
 import { compressAndUpload } from '../lib/imageUtils'
 
@@ -248,14 +249,49 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
     }, 600)
   }
 
+  const [showMove, setShowMove] = useState(false)
+  const [showHist, setShowHist] = useState(false)
+  const [moveTarget, setMoveTarget] = useState('')
+  const [moveShelves, setMoveShelves] = useState([])
+  const [movingProd, setMovingProd] = useState(false)
+  const [prodHistory, setProdHistory] = useState([])
+  const [histLoading, setHistLoading] = useState(false)
+
   async function handleDelete() {
-    if (!confirm('Supprimer ce produit ?')) return
+    if (!window.__depotConfirm || !await window.__depotConfirm('Supprimer ce produit ?')) return
     await logMovement('delete', product.name, shelfName, product.shelf_id)
     const { error } = await supabase.from('products').delete().eq('id', product.id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     toast('Produit supprimé', 'success')
     onRefresh()
   }
+
+  async function openMove() {
+    const { data } = await supabase.from('shelves').select('id, name').order('name')
+    setMoveShelves((data || []).filter(s => s.id !== product.shelf_id))
+    setMoveTarget('')
+    setShowMove(true)
+  }
+
+  async function handleMove() {
+    if (!moveTarget) return
+    setMovingProd(true)
+    const dest = moveShelves.find(s => s.id === moveTarget)
+    const { error } = await supabase.from('products').update({ shelf_id: moveTarget, section_id: null }).eq('id', product.id)
+    if (error) { toast(error.message, 'error'); setMovingProd(false); return }
+    await logMovement('edit', product.name, `${shelfName} → ${dest?.name}`, product.shelf_id)
+    toast(`Déplacé vers ${dest?.name}`, 'success')
+    setMovingProd(false); setShowMove(false); onRefresh()
+  }
+
+  async function openHistory() {
+    setShowHist(true); setHistLoading(true)
+    const { data } = await supabase.from('product_movements').select('*')
+      .eq('product_name', product.name).order('created_at', { ascending: false }).limit(30)
+    setProdHistory(data || []); setHistLoading(false)
+  }
+
+  const isLow = product.min_quantity > 0 && product.quantity <= product.min_quantity
 
   return (
     <div style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 14px',
@@ -294,7 +330,74 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
         </div>
         {isLow && <div style={{fontSize:12,color:'var(--red)',marginTop:2,fontWeight:600}}>⚠️ Stock bas — réapprovisionner</div>}
       </div>
-      {isEditor && <button className="btn btn-ghost btn-icon btn-sm" onClick={handleDelete} style={{color:'var(--red)',fontSize:16,flexShrink:0}}>🗑️</button>}
+      {isEditor && (
+        <div style={{display:'flex',flexDirection:'column',gap:4,flexShrink:0}}>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={handleDelete} style={{color:'var(--red)',fontSize:16}} title="Supprimer">🗑️</button>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={openMove}    style={{fontSize:14}} title="Déplacer vers une autre étagère">↕️</button>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={openHistory} style={{fontSize:14}} title="Historique de ce produit">📋</button>
+        </div>
+      )}
+
+      {/* Move modal */}
+      {showMove && (
+        <div className="modal-overlay" style={{zIndex:2100}} onClick={e => e.target===e.currentTarget && setShowMove(false)}>
+          <div className="modal" style={{maxWidth:360}}>
+            <h3 className="modal-title">↕️ Déplacer — {product.name}</h3>
+            <div className="form-group">
+              <label className="label">Étagère de destination</label>
+              <select className="input" value={moveTarget} onChange={e => setMoveTarget(e.target.value)}>
+                <option value="">Choisir...</option>
+                {moveShelves.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowMove(false)}>Annuler</button>
+              <button className="btn btn-primary" onClick={handleMove} disabled={!moveTarget || movingProd}>
+                {movingProd ? <span className="spinner" style={{borderTopColor:'#fff'}}/> : 'Déplacer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History modal */}
+      {showHist && (
+        <div className="modal-overlay" style={{zIndex:2100}} onClick={e => e.target===e.currentTarget && setShowHist(false)}>
+          <div className="modal" style={{maxWidth:400}}>
+            <h3 className="modal-title">📋 Historique — {product.name}</h3>
+            {histLoading ? (
+              <div style={{display:'flex',justifyContent:'center',padding:32}}><span className="spinner" style={{width:28,height:28}}/></div>
+            ) : prodHistory.length === 0 ? (
+              <div className="empty" style={{padding:'20px 0'}}><div className="empty-icon" style={{fontSize:32}}>📋</div><p>Aucun mouvement enregistré</p></div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'55vh',overflowY:'auto'}}>
+                {prodHistory.map(m => (
+                  <div key={m.id} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'9px 12px',background:'var(--bg3)',borderRadius:8,border:'1px solid var(--border)'}}>
+                    <span style={{fontSize:16,flexShrink:0}}>
+                      {{add:'✅',delete:'🗑️',edit:'✏️',import:'📥'}[m.action] || '📦'}
+                    </span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600}}>
+                        {{add:'Ajouté',delete:'Supprimé',edit:'Modifié',import:'Importé'}[m.action] || m.action}
+                        {m.quantity_change != null && m.action !== 'delete' && (
+                          <span style={{marginLeft:6,color: m.quantity_change > 0 ? 'var(--green)' : 'var(--red)',fontWeight:700}}>
+                            {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}
+                          </span>
+                        )}
+                      </div>
+                      {m.shelf_name && <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>{m.shelf_name}</div>}
+                      <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>{new Date(m.created_at).toLocaleString('fr-FR')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="form-actions" style={{marginTop:16}}>
+              <button className="btn btn-secondary" onClick={() => setShowHist(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1092,7 +1195,8 @@ function GlobalSearchModal({ onShelfSelect, onClose }) {
 // ── Main DepotPage ─────────────────────────────────────────────
 export default function DepotPage() {
   const { isEditor } = useAuth()
-  const toast = useToast()
+  const toast      = useToast()
+  const confirmFn  = useConfirm()
 
   const { cols: initCols, rows: initRows } = getGridSettings()
   const [gridCols, setGridCols] = useState(initCols)
@@ -1116,6 +1220,10 @@ export default function DepotPage() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
   const [dragMode,         setDragMode]         = useState(false)
   const [dragShelfId,      setDragShelfId]      = useState(null)
+  const [wiggleId,         setWiggleId]         = useState(null)
+  const [dropTarget,       setDropTarget]       = useState(null)
+  const longPressRef = useRef(null)
+  const gridRef      = useRef(null)
   const [showRoomModal,    setShowRoomModal]    = useState(false)
   const [editRoom,         setEditRoom]         = useState(null)
   const [roomDrawMode,     setRoomDrawMode]     = useState(false)
@@ -1177,7 +1285,7 @@ export default function DepotPage() {
   }
 
   async function handleDelete(shelfId) {
-    if (!confirm('Supprimer cette étagère et tous ses produits ?')) return
+    if (!await confirmFn('Supprimer cette étagère et tous ses produits ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('shelves').delete().eq('id', shelfId)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     toast('Étagère supprimée', 'success')
@@ -1189,6 +1297,16 @@ export default function DepotPage() {
     const { error } = await supabase.from('shelves').update({ grid_x: x, grid_y: y }).eq('id', dragShelfId)
     if (error) { toast('Erreur déplacement : ' + error.message, 'error') }
     setDragShelfId(null); loadAll()
+  }
+
+  function getCellCoords(clientX, clientY) {
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    const pad = 10, gap = 4
+    const cx = Math.floor((clientX - rect.left  - pad) / (cellSize + gap))
+    const cy = Math.floor((clientY - rect.top   - pad) / (cellSize + gap))
+    if (cx < 0 || cx >= gridCols || cy < 0 || cy >= gridRows) return null
+    return { x: cx, y: cy }
   }
 
   function buildGrid() {
@@ -1377,7 +1495,23 @@ export default function DepotPage() {
                   )
                 })()}
 
-                <div style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content'}}>
+                <div ref={gridRef}
+                  style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content',touchAction:'none'}}
+                  onPointerMove={e => {
+                    if (!wiggleId) return
+                    const pos = getCellCoords(e.clientX, e.clientY)
+                    setDropTarget(pos)
+                  }}
+                  onPointerUp={async () => {
+                    clearTimeout(longPressRef.current)
+                    if (wiggleId && dropTarget) {
+                      const cell = grid[dropTarget.y]?.[dropTarget.x]
+                      if (!cell) await handleDrop(dropTarget.x, dropTarget.y)
+                    }
+                    setWiggleId(null); setDropTarget(null)
+                  }}
+                  onPointerLeave={() => { if (wiggleId) setDropTarget(null) }}
+                >
                 {cells.map(({ x, y, shelf: cell }) => {
                   const w = Math.max(1, cell?.grid_w || 1)
                   const h = Math.max(1, cell?.grid_h || 1)
@@ -1385,11 +1519,11 @@ export default function DepotPage() {
                   const isDragging = dragShelfId === cell?.id
                   const counts = cell ? (productCounts[cell.id] || { total: 0, lowStock: 0 }) : null
                   return (
-                    <div key={`${x}-${y}`} className={`grid-cell ${cell ? 'occupied' : 'empty-cell'}`}
+                    <div key={`${x}-${y}`} className={`grid-cell ${cell ? 'occupied' : 'empty-cell'} ${wiggleId && wiggleId===cell?.id ? 'wiggling' : ''} ${dropTarget && dropTarget.x===x && dropTarget.y===y && !cell && wiggleId ? 'drag-target' : ''}`}
                       style={{
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
-                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:isDragging?0.5:1} : {}),
-                        cursor:roomDrawMode?'crosshair':dragMode?(cell?'grab':'copy'):'pointer',
+                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:(isDragging||wiggleId===cell?.id)?0.85:1} : {}),
+                        cursor:roomDrawMode?'crosshair':wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
@@ -1398,10 +1532,31 @@ export default function DepotPage() {
                       onDragEnd={() => setDragShelfId(null)}
                       onDragOver={e => { if (dragMode) e.preventDefault() }}
                       onDrop={() => { if (dragMode && !cell) handleDrop(x, y) }}
-                      onMouseDown={e => { if (!roomDrawMode) return; e.preventDefault(); setDrawStart({x,y}); setDrawHover({x,y}) }}
+                      onPointerDown={e => {
+                        if (roomDrawMode) { e.preventDefault(); setDrawStart({x,y}); setDrawHover({x,y}); return }
+                        if (!cell || !isEditor) return
+                        e.currentTarget.setPointerCapture(e.pointerId)
+                        longPressRef.current = setTimeout(() => {
+                          setWiggleId(cell.id)
+                          navigator.vibrate?.(40)
+                        }, 480)
+                      }}
+                      onPointerUp={e => {
+                        clearTimeout(longPressRef.current)
+                        if (roomDrawMode && drawStart) {
+                          const rect2 = getDrawRect()
+                          if (rect2) { setEditRoom({grid_x:rect2.x,grid_y:rect2.y,grid_w:rect2.w,grid_h:rect2.h}); setShowRoomModal(true) }
+                          setDrawStart(null); setDrawHover(null); setRoomDrawMode(false)
+                        }
+                        if (wiggleId) return // handled by grid container
+                        if (!dragMode && !roomDrawMode) {
+                          if (cell) setSelectedShelf(cell)
+                          else if (isEditor) setShowAddShelf(true)
+                        }
+                      }}
+                      onPointerCancel={() => { clearTimeout(longPressRef.current); setWiggleId(null); setDropTarget(null) }}
                       onMouseEnter={() => { if (roomDrawMode && drawStart) setDrawHover({x,y}) }}
-                      onMouseUp={() => { if (!roomDrawMode || !drawStart) return; const rect = getDrawRect(); if (rect) { setEditRoom({grid_x:rect.x,grid_y:rect.y,grid_w:rect.w,grid_h:rect.h}); setShowRoomModal(true) } setDrawStart(null); setDrawHover(null); setRoomDrawMode(false) }}
-                      onClick={() => { if (dragMode || roomDrawMode) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
+                      onClick={() => { if (dragMode || roomDrawMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >
                       {cell ? (
@@ -1490,13 +1645,15 @@ export default function DepotPage() {
       {showExport    && <ExportModal   shelves={filtered} onClose={() => setShowExport(false)}/>}
       {showScanner   && <ScannerModal  onClose={() => setShowScanner(false)} onFound={id => { setShowScanner(false); const s=shelves.find(x=>x.id===id); if(s) setSelectedShelf(s); else alert('Étagère non trouvée') }}/>}
       {showImportCSV && <ImportCSVModal shelves={shelves} onClose={() => setShowImportCSV(false)} onDone={loadAll}/>}
-      {showHistory   && <MovementHistory onClose={() => setShowHistory(false)}/>}
-      {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} onSelect={shelf => { setShowGlobalSearch(false); setSelectedShelf(shelf) }}/>}
+      {showHistory   && <HistoryModal    onClose={() => setShowHistory(false)}/>}
+      {showGlobalSearch && <GlobalSearchModal onClose={() => setShowGlobalSearch(false)} onSelect={shelf => { setShowGlobalSearch(false); setSelectedShelf(shelf) }}/>}
 
       {(showAddShelf || editShelf) && (
         <ShelfModal
           shelf={editShelf}
           zones={zones}
+          gridCols={gridCols}
+          gridRows={gridRows}
           onClose={() => { setShowAddShelf(false); setEditShelf(null) }}
           onSave={loadAll}
         />

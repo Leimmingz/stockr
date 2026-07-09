@@ -7,7 +7,9 @@ import { ConfirmProvider } from './hooks/useConfirm'
 import AuthPage     from './pages/AuthPage'
 import DepotPage    from './pages/DepotPage'
 import MaterielPage from './pages/MaterielPage'
-import AdminPage    from './pages/AdminPage'
+import AdminPage         from './pages/AdminPage'
+import ShelfPublicPage   from './pages/ShelfPublicPage'
+import DashboardPage     from './pages/DashboardPage'
 import { supabase } from './lib/supabase'
 
 // ── Shelf deep-link handler ────────────────────────────
@@ -29,9 +31,10 @@ function ShelfRedirect({ shelfId, onBack }) {
 
 // ── Navigation ────────────────────────────────────────────────
 const TABS = [
-  { id: 'depot',    icon: '🏭', label: 'Dépôt'    },
-  { id: 'materiel', icon: '🎛️', label: 'Matériel' },
-  { id: 'admin',    icon: '👤', label: 'Compte'   },
+  { id: 'depot',     icon: '🏭', label: 'Dépôt'    },
+  { id: 'materiel',  icon: '🎛️', label: 'Matériel' },
+  { id: 'stats',     icon: '📊', label: 'Stats'    },
+  { id: 'admin',     icon: '👤', label: 'Compte'   },
 ]
 
 function BottomNav({ active, onChange, themeIcon, onTheme }) {
@@ -84,7 +87,7 @@ function AppShell() {
           <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#A78BFA" opacity="0.8"/>
           <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#A78BFA" opacity="0.9"/>
           <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#818CF8" opacity="0.8"/>
-          <text x="36" y="28" fontSize="18" fontWeight="800" fill="#111118" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
+          <text x="36" y="28" fontSize="18" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
         </svg>
         <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto' }}/>
       </div>
@@ -113,7 +116,7 @@ function AppShell() {
       <div className="app-content">
         {tab === 'depot'    && <DepotPage/>}
         {tab === 'materiel' && <MaterielPage/>}
-
+        {tab === 'stats'    && <DashboardPage/>}
         {tab === 'admin'    && <AdminPage/>}
       </div>
     </div>
@@ -122,6 +125,16 @@ function AppShell() {
 
 export default
 function App() {
+  // Detect /shelf/:id BEFORE auth — public read-only view
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+  const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = window.location.pathname.match(new RegExp(`^${escapedBase}/shelf/([a-f0-9-]{36})$`, 'i'))
+  if (m) return (
+    <ToastProvider>
+      <ShelfPublicPage shelfId={m[1]}/>
+    </ToastProvider>
+  )
+
   return (
     <AuthProvider>
       <ToastProvider>

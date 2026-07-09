@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Confirme ton compte Stockr</title>
+</head>
+<body style="margin:0;padding:0;background:#F5F5F7;font-family:'Inter',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F5F7;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;">
+
+          <!-- Logo -->
+          <tr>
+            <td align="center" style="padding-bottom:32px;">
+              <svg viewBox="0 0 160 48" width="160" height="48" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#4F46E5"/>
+                    <stop offset="100%" stop-color="#7C3AED"/>
+                  </linearGradient>
+                </defs>
+                <rect x="2" y="2" width="4" height="44" rx="2" fill="url(#g)"/>
+                <rect x="34" y="2" width="4" height="44" rx="2" fill="url(#g)"/>
+                <rect x="2" y="2" width="36" height="5" rx="2.5" fill="url(#g)"/>
+                <rect x="2" y="24" width="36" height="5" rx="2.5" fill="url(#g)"/>
+                <rect x="2" y="42" width="36" height="5" rx="2.5" fill="url(#g)"/>
+                <rect x="8"  y="10" width="10" height="12" rx="2" fill="#818CF8" opacity="0.9"/>
+                <rect x="22" y="13" width="9"  height="9"  rx="2" fill="#A78BFA" opacity="0.8"/>
+                <rect x="8"  y="30" width="12" height="10" rx="2" fill="#A78BFA" opacity="0.9"/>
+                <rect x="23" y="32" width="8"  height="8"  rx="2" fill="#818CF8" opacity="0.8"/>
+                <text x="46" y="34" font-size="28" font-weight="800" fill="#111118" font-family="Inter,system-ui,sans-serif">Stock<tspan fill="url(#g)">r</tspan></text>
+              </svg>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background:#FFFFFF;border-radius:16px;border:1px solid #E2E2E8;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
+
+              <!-- Top accent bar -->
+              <tr>
+                <td style="background:linear-gradient(135deg,#4F46E5,#7C3AED);height:5px;display:block;line-height:5px;font-size:5px;">&nbsp;</td>
+              </tr>
+
+              <!-- Content -->
+              <tr>
+                <td style="padding:40px 40px 32px;">
+
+                  <!-- Icon -->
+                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+                    <tr>
+                      <td align="center">
+                        <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,rgba(79,70,229,0.1),rgba(124,58,237,0.15));border:1.5px solid rgba(124,58,237,0.2);display:inline-flex;align-items:center;justify-content:center;font-size:28px;line-height:64px;text-align:center;">
+                          ✉️
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <h1 style="margin:0 0 10px;font-size:22px;font-weight:800;color:#111118;text-align:center;letter-spacing:-0.3px;">
+                    Confirme ton adresse email
+                  </h1>
+                  <p style="margin:0 0 28px;font-size:15px;color:#5A5A72;text-align:center;line-height:1.6;">
+                    Tu as créé un compte Stockr.<br/>
+                    Clique sur le bouton ci-dessous pour activer ton accès.
+                  </p>
+
+                  <!-- CTA Button -->
+                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                    <tr>
+                      <td align="center">
+                        <a href="{{ .ConfirmationURL }}"
+                          style="display:inline-block;padding:14px 36px;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px;letter-spacing:0.2px;box-shadow:0 4px 16px rgba(109,40,217,0.35);">
+                          ✅ Confirmer mon compte
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Divider -->
+                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+                    <tr>
+                      <td style="border-top:1px solid #E2E2E8;font-size:0;line-height:0;">&nbsp;</td>
+                    </tr>
+                  </table>
+
+                  <!-- Link fallback -->
+                  <p style="margin:0;font-size:13px;color:#9898B0;text-align:center;line-height:1.6;">
+                    Si le bouton ne fonctionne pas, copie ce lien dans ton navigateur :<br/>
+                    <a href="{{ .ConfirmationURL }}" style="color:#7C3AED;word-break:break-all;font-size:12px;">
+                      {{ .ConfirmationURL }}
+                    </a>
+                  </p>
+
+                </td>
+              </tr>
+
+              <!-- Expiry notice -->
+              <tr>
+                <td style="padding:0 40px 32px;">
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background:#F0F0F2;border-radius:10px;padding:14px 18px;">
+                        <p style="margin:0;font-size:13px;color:#5A5A72;line-height:1.5;">
+                          🕐 <strong>Ce lien expire dans 24 heures.</strong><br/>
+                          Si tu n'as pas créé de compte Stockr, ignore cet email.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9898B0;line-height:1.6;">
+                Stockr — Gestion de dépôt<br/>
+                Cet email a été envoyé automatiquement, ne pas répondre.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
