@@ -10,8 +10,20 @@
     <meta name="apple-mobile-web-app-title" content="Stockr" />
     <link rel="icon" type="image/svg+xml" href="/stockr/logo.svg" />
     <title>Stockr</title>
-    <script type="module" crossorigin src="/stockr/assets/index-DIUWIAoE.js"></script>
-    <link rel="stylesheet" crossorigin href="/stockr/assets/index-DTAmE2s1.css">
+    <!-- Anti-flash: apply saved theme before first paint -->
+    <script>
+      ;(function(){
+        try {
+          var t = localStorage.getItem('theme')
+          if (t === 'dark') document.documentElement.setAttribute('data-theme','dark')
+          else if (t === 'light') document.documentElement.setAttribute('data-theme','light')
+          else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            document.documentElement.setAttribute('data-theme','dark')
+        } catch(e) {}
+      })()
+    </script>
+    <script type="module" crossorigin src="/stockr/assets/index-pomeKGSl.js"></script>
+    <link rel="stylesheet" crossorigin href="/stockr/assets/index-C9LOFqzj.css">
   <link rel="manifest" href="/stockr/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/stockr/registerSW.js"></script></head>
   <body>
     <div id="root"></div>
