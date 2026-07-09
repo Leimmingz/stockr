@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { compressAndUpload } from '../lib/imageUtils'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const AUDIO_TYPES  = ['Ampli','Enceinte','Caisson','Console / Mixeur','Processeur','Micro','Câble','Autre']
@@ -385,11 +386,27 @@ function UnifiedCalc({ lights, audios }) {
 }
 
 // ── Catalogue ────────────────────────────────────────────────
-function CatalogueView({ lights, audios, filter, isEditor, onEdit, onDelete }) {
-  const items = [
+function CatalogueView({ lights, audios, filter, search, sortBy, isEditor, onEdit, onDelete }) {
+  const q = (search || '').toLowerCase()
+  let items = [
     ...(filter !== 'audio' ? lights.map(i => ({...i, _kind:'light'})) : []),
     ...(filter !== 'light' ? audios.map(i => ({...i, _kind:'audio'})) : []),
   ]
+  if (q) items = items.filter(i =>
+    i.name?.toLowerCase().includes(q) ||
+    i.brand?.toLowerCase().includes(q) ||
+    i.model?.toLowerCase().includes(q) ||
+    i.type?.toLowerCase().includes(q)
+  )
+  if (sortBy === 'watts') {
+    items = items.sort((a, b) => {
+      const wa = a._kind === 'light' ? (a.watts||0) : (a.power_watts||0)
+      const wb = b._kind === 'light' ? (b.watts||0) : (b.power_watts||0)
+      return wb - wa
+    })
+  }
+
+  const totalW = items.reduce((s,i) => s + (i._kind==='light' ? (i.watts||0) : (i.power_watts||0)), 0)
 
   if (items.length === 0) return (
     <div className="empty">
@@ -399,6 +416,11 @@ function CatalogueView({ lights, audios, filter, isEditor, onEdit, onDelete }) {
   )
 
   return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,fontSize:13,color:'var(--text3)'}}>
+        <span>{items.length} appareil{items.length!==1?'s':''}</span>
+        {totalW > 0 && <span>⚡ {totalW} W total</span>}
+      </div>
     <div style={{display:'flex',flexDirection:'column',gap:10}}>
       {items.map(item => {
         const k = item._kind
@@ -442,6 +464,7 @@ function CatalogueView({ lights, audios, filter, isEditor, onEdit, onDelete }) {
         )
       })}
     </div>
+    </div>
   )
 }
 
@@ -455,8 +478,9 @@ function CalcHistory() {
       .then(({ data }) => setHistory(data || []))
   }, [])
 
+  const confirm = useConfirm()
   async function handleDelete(id) {
-    if (!confirm('Supprimer ce calcul ?')) return
+    if (!await confirm('Supprimer ce calcul ?')) return
     const { error } = await supabase.from('power_calculations').delete().eq('id', id)
     if (error) { toast(error.message, 'error'); return }
     setHistory(h => h.filter(c => c.id !== id))
@@ -500,11 +524,14 @@ export default function MaterielPage() {
   const toast           = useToast()
   const [tab, setTab]   = useState('calc')
   const [filter, setFilter] = useState('all')
-  const [lights, setLights] = useState([])
-  const [audios, setAudios] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editItem, setEditItem] = useState(null)  // {item, kind}
-  const [showAdd, setShowAdd]   = useState(null)  // 'light' | 'audio' | null
+  const confirm = useConfirm()
+  const [lights, setLights]     = useState([])
+  const [audios, setAudios]     = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [editItem, setEditItem] = useState(null)
+  const [showAdd, setShowAdd]   = useState(null)
+  const [catSearch, setCatSearch] = useState('')
+  const [catSort, setCatSort]     = useState('name') // 'name' | 'watts'
 
   useEffect(() => { loadAll() }, [])
 
@@ -521,7 +548,7 @@ export default function MaterielPage() {
 
   async function handleDelete(id, kind) {
     const table = kind === 'light' ? 'projectors' : 'audio_equipment'
-    if (!confirm('Supprimer cet équipement ?')) return
+    if (!await confirm('Supprimer cet équipement ?')) return
     const { error } = await supabase.from(table).delete().eq('id', id)
     if (error) { toast(error.message, 'error'); return }
     toast('Supprimé', 'success'); loadAll()
@@ -547,35 +574,59 @@ export default function MaterielPage() {
           ))}
         </div>
 
-        {/* Filter chips — catalogue only */}
+        {/* Catalogue controls */}
         {tab === 'catalogue' && (
-          <div style={{display:'flex',gap:6,marginTop:10}}>
-            {[['all','Tout'],['light','💡 Lumière'],['audio','🔊 Son']].map(([v,l]) => (
-              <button key={v} className={`btn btn-sm ${filter===v?'btn-primary':'btn-secondary'}`} onClick={() => setFilter(v)}>{l}</button>
-            ))}
-          </div>
+          <>
+            <div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
+              {[['all','Tout'],['light','💡 Lumière'],['audio','🔊 Son']].map(([v,l]) => (
+                  <button key={v} className={`btn btn-sm ${filter===v?'btn-primary':'btn-secondary'}`} onClick={() => setFilter(v)}>{l}</button>
+                ))}
+              </div>
+            <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8,flexWrap:'wrap'}}>
+              <input className="input" placeholder="Rechercher..." value={catSearch} onChange={e=>setCatSearch(e.target.value)} style={{flex:1,minWidth:140}}/>
+              <select className="input" value={catSort} onChange={e=>setCatSort(e.target.value)} style={{width:'auto',padding:'8px 10px'}}>
+                <option value="name">A–Z</option>
+                <option value="watts">Puissance ↓</option>
+              </select>
+            </div>
+          </>
         )}
       </div>
 
       <div className="page-content">
         {loading ? (
           <div style={{display:'flex',justifyContent:'center',padding:60}}><span className="spinner" style={{width:32,height:32}}/></div>
-        ) : tab === 'calc' ? (
-          <UnifiedCalc lights={lights} audios={audios}/>
-        ) : tab === 'catalogue' ? (
-          <CatalogueView lights={lights} audios={audios} filter={filter} isEditor={isEditor}
-            onEdit={(item, kind) => setEditItem({item, kind})}
-            onDelete={handleDelete}
-          />
         ) : (
-          <CalcHistory/>
+          <>
+            {tab === 'calc'       && <UnifiedCalc lights={lights} audios={audios}/>}
+            {tab === 'catalogue'  && (
+              <CatalogueView
+                lights={lights} audios={audios}
+                filter={filter} search={catSearch} sortBy={catSort}
+                isEditor={isEditor}
+                onEdit={(item, kind) => setEditItem({...item, _kind: kind})}
+                onDelete={handleDelete}
+              />
+            )}
+            {tab === 'historique' && <CalcHistory/>}
+          </>
         )}
       </div>
 
-      {showAdd === 'light'   && <LightModal onClose={() => setShowAdd(null)} onSave={loadAll}/>}
-      {showAdd === 'audio'   && <AudioModal onClose={() => setShowAdd(null)} onSave={loadAll}/>}
-      {editItem?.kind === 'light' && <LightModal item={editItem.item} onClose={() => setEditItem(null)} onSave={loadAll}/>}
-      {editItem?.kind === 'audio' && <AudioModal item={editItem.item} onClose={() => setEditItem(null)} onSave={loadAll}/>}
+      {(showAdd === 'light' || editItem?._kind === 'light') && (
+        <LightModal
+          item={editItem?._kind === 'light' ? editItem : null}
+          onClose={() => { setShowAdd(null); setEditItem(null) }}
+          onSave={loadAll}
+        />
+      )}
+      {(showAdd === 'audio' || editItem?._kind === 'audio') && (
+        <AudioModal
+          item={editItem?._kind === 'audio' ? editItem : null}
+          onClose={() => { setShowAdd(null); setEditItem(null) }}
+          onSave={loadAll}
+        />
+      )}
     </div>
   )
 }

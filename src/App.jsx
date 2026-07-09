@@ -3,6 +3,7 @@ import { useAppUpdate } from './hooks/useAppUpdate'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
+import { ConfirmProvider } from './hooks/useConfirm'
 import AuthPage     from './pages/AuthPage'
 import DepotPage    from './pages/DepotPage'
 import MaterielPage from './pages/MaterielPage'
@@ -124,7 +125,9 @@ function App() {
   return (
     <AuthProvider>
       <ToastProvider>
-        <AppShell/>
+        <ConfirmProvider>
+          <AppShell/>
+        </ConfirmProvider>
       </ToastProvider>
     </AuthProvider>
   )
