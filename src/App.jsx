@@ -83,13 +83,13 @@ function AppShell() {
   if (!user) return <AuthPage/>
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+    <div className="app-shell">
+      <BottomNav active={tab} onChange={setTab}/>
+      <div className="app-content">
         {tab === 'depot' && <DepotPage/>}
         {tab === 'power' && <PowerPage/>}
         {tab === 'admin' && <AdminPage/>}
       </div>
-      <BottomNav active={tab} onChange={setTab}/>
     </div>
   )
 }
