@@ -1124,6 +1124,7 @@ export default function DepotPage() {
   const [gridZoom,         setGridZoom]         = useState(() => {
     try { return parseFloat(localStorage.getItem('gridZoom') || '1') } catch { return 1 }
   })
+  const [showMore,         setShowMore]         = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -1254,31 +1255,61 @@ export default function DepotPage() {
               </div>
             )}
           </div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            <button className={`btn btn-sm ${view==='grid'?'btn-primary':'btn-secondary'}`} onClick={() => setView('grid')}>Grille</button>
-            <button className={`btn btn-sm ${view==='list'?'btn-primary':'btn-secondary'}`} onClick={() => setView('list')}>Liste</button>
+          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+            {/* Vue */}
+            <button className={`btn btn-sm ${view==='grid'?'btn-primary':'btn-secondary'}`}
+              onClick={() => setView(v => v==='grid'?'list':'grid')} title={view==='grid'?'Vue liste':'Vue grille'}>
+              {view === 'grid' ? '☰' : '⊞'}
+            </button>
+
+            {/* Recherche globale */}
             <button className="btn btn-secondary btn-sm" onClick={() => setShowGlobalSearch(true)} title="Recherche globale (Ctrl+K)">🔍</button>
-            {isEditor && (
-              <button className={`btn btn-sm ${dragMode?'btn-primary':'btn-secondary'}`}
-                onClick={() => { setDragMode(m => !m); setRoomDrawMode(false) }} title="Mode déplacement">↕️</button>
-            )}
-            {isEditor && (
-              <button className={`btn btn-sm ${roomDrawMode?'btn-primary':'btn-secondary'}`}
-                onClick={() => { setRoomDrawMode(m => !m); setDragMode(false) }} title="Dessiner une pièce">✏️🏠</button>
-            )}
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowGridSettings(true)} title="Réglages grille">⚙️</button>
-            <div style={{display:'flex',alignItems:'center',gap:2,background:'var(--bg3)',borderRadius:8,border:'1.5px solid var(--border)',padding:'2px 4px'}}>
-              <button className="btn btn-ghost btn-sm btn-icon" style={{padding:'2px 6px',fontSize:14}} title="Zoom −"
+
+            {/* Zoom */}
+            <div style={{display:'flex',alignItems:'center',gap:1,background:'var(--bg3)',borderRadius:8,border:'1.5px solid var(--border)',padding:'2px 3px'}}>
+              <button className="btn btn-ghost btn-sm" style={{padding:'2px 7px',fontSize:14,lineHeight:1}} title="Zoom −"
                 onClick={() => { const z = Math.max(0.6, clampedZoom - 0.2); setGridZoom(z); try { localStorage.setItem('gridZoom', z) } catch {} }}>−</button>
-              <span style={{fontSize:11,fontWeight:600,color:'var(--text2)',minWidth:32,textAlign:'center'}}>{Math.round(clampedZoom * 100)}%</span>
-              <button className="btn btn-ghost btn-sm btn-icon" style={{padding:'2px 6px',fontSize:14}} title="Zoom +"
+              <span style={{fontSize:11,fontWeight:600,color:'var(--text2)',minWidth:30,textAlign:'center'}}>{Math.round(clampedZoom * 100)}%</span>
+              <button className="btn btn-ghost btn-sm" style={{padding:'2px 7px',fontSize:14,lineHeight:1}} title="Zoom +"
                 onClick={() => { const z = Math.min(2.0, clampedZoom + 0.2); setGridZoom(z); try { localStorage.setItem('gridZoom', z) } catch {} }}>+</button>
             </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowExport(true)} title="Exporter PDF">📄</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowScanner(true)} title="Scanner QR">📷</button>
-            {isEditor && <button className="btn btn-secondary btn-sm" onClick={() => setShowImportCSV(true)} title="Importer CSV">📥</button>}
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowHistory(true)} title="Historique">📋</button>
-            {isEditor && <button className="btn btn-secondary btn-sm" onClick={() => { setEditRoom(null); setShowRoomModal(true) }} title="Ajouter pièce">🏠</button>}
+
+            {/* Menu ⋯ */}
+            <div style={{position:'relative'}}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowMore(m => !m)} title="Plus d'options">⋯</button>
+              {showMore && (
+                <>
+                  <div style={{position:'fixed',inset:0,zIndex:99}} onClick={() => setShowMore(false)}/>
+                  <div style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'var(--bg2)',border:'1.5px solid var(--border)',borderRadius:'var(--radius)',boxShadow:'var(--shadow-md)',zIndex:100,minWidth:210,padding:'6px 0'}}>
+                    {[
+                      { label:'📷 Scanner QR',        action:() => { setShowScanner(true); setShowMore(false) } },
+                      { label:'📄 Exporter PDF',       action:() => { setShowExport(true);  setShowMore(false) } },
+                      ...(isEditor ? [{ label:'📥 Importer CSV', action:() => { setShowImportCSV(true); setShowMore(false) } }] : []),
+                      { label:'📋 Historique',         action:() => { setShowHistory(true); setShowMore(false) } },
+                      { label:'⚙️ Réglages grille',   action:() => { setShowGridSettings(true); setShowMore(false) } },
+                      ...(isEditor ? [
+                        { label:`↕️ Mode déplacement ${dragMode?'(actif)':''}`, action:() => { setDragMode(m => !m); setRoomDrawMode(false); setShowMore(false) }, active: dragMode },
+                        { label:`✏️ Dessiner pièce ${roomDrawMode?'(actif)':''}`, action:() => { setRoomDrawMode(m => !m); setDragMode(false); setShowMore(false) }, active: roomDrawMode },
+                        { label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
+                      ] : []),
+                    ].map((item, i) => (
+                      <button key={i} onClick={item.action} style={{
+                        display:'block', width:'100%', textAlign:'left', padding:'10px 16px',
+                        background: item.active ? 'rgba(124,58,237,0.08)' : 'transparent',
+                        color: item.active ? 'var(--indigo2)' : 'var(--text)',
+                        border:'none', cursor:'pointer', fontSize:14, fontWeight: item.active ? 600 : 400,
+                        fontFamily:'inherit',
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background = item.active ? 'rgba(124,58,237,0.12)' : 'var(--bg3)'}
+                        onMouseLeave={e => e.currentTarget.style.background = item.active ? 'rgba(124,58,237,0.08)' : 'transparent'}
+                      >{item.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Ajouter étagère */}
             {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddShelf(true)}>+ Étagère</button>}
           </div>
         </div>
@@ -1435,26 +1466,52 @@ export default function DepotPage() {
         )}
       </div>
 
-      {/* Modals */}
+      {showRoomModal && <RoomModal room={editRoom} onClose={() => { setShowRoomModal(false); setEditRoom(null) }} onSave={loadAll}/>}
+
+      {showGridSettings && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setShowGridSettings(false)}>
+          <div className="modal">
+            <h3 className="modal-title">⚙️ Réglages de la grille</h3>
+            <div className="form-group">
+              <label className="label">Colonnes ({gridCols})</label>
+              <input className="input" type="range" min={4} max={40} value={gridCols} onChange={e => { const v=+e.target.value; setGridCols(v); try{localStorage.setItem('gridCols',v)}catch{} }}/>
+            </div>
+            <div className="form-group">
+              <label className="label">Lignes ({gridRows})</label>
+              <input className="input" type="range" min={4} max={40} value={gridRows} onChange={e => { const v=+e.target.value; setGridRows(v); try{localStorage.setItem('gridRows',v)}catch{} }}/>
+            </div>
+            <div className="form-actions">
+              <button className="btn btn-secondary" onClick={() => setShowGridSettings(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExport    && <ExportModal   shelves={filtered} onClose={() => setShowExport(false)}/>}
+      {showScanner   && <ScannerModal  onClose={() => setShowScanner(false)} onFound={id => { setShowScanner(false); const s=shelves.find(x=>x.id===id); if(s) setSelectedShelf(s); else alert('Étagère non trouvée') }}/>}
+      {showImportCSV && <ImportCSVModal shelves={shelves} onClose={() => setShowImportCSV(false)} onDone={loadAll}/>}
+      {showHistory   && <MovementHistory onClose={() => setShowHistory(false)}/>}
+      {showGlobalSearch && <GlobalSearch onClose={() => setShowGlobalSearch(false)} onSelect={shelf => { setShowGlobalSearch(false); setSelectedShelf(shelf) }}/>}
+
       {(showAddShelf || editShelf) && (
-        <ShelfModal shelf={editShelf} zones={zones} gridCols={gridCols} gridRows={gridRows}
+        <ShelfModal
+          shelf={editShelf}
+          zones={zones}
           onClose={() => { setShowAddShelf(false); setEditShelf(null) }}
-          onSave={() => { loadAll(); setShowAddShelf(false); setEditShelf(null) }}/>
+          onSave={loadAll}
+        />
       )}
+
       {selectedShelf && (
-        <ShelfDetailModal shelf={selectedShelf} onClose={() => setSelectedShelf(null)}
-          onEdit={() => { setSelectedShelf(null); setEditShelf(selectedShelf) }}
-          onDelete={() => handleDelete(selectedShelf.id)}
+        <ShelfDetailModal
+          shelf={selectedShelf}
           isEditor={isEditor}
-          onRefresh={loadAll}/>
+          onClose={() => setSelectedShelf(null)}
+          onEdit={() => { setEditShelf(selectedShelf); setSelectedShelf(null) }}
+          onDelete={() => handleDelete(selectedShelf.id)}
+          onRefresh={loadAll}
+        />
       )}
-      {showGridSettings && <GridSettingsModal onClose={() => setShowGridSettings(false)} onApply={() => { loadAll() }}/>}
-      {showExport && <ExportModal shelves={shelves} onClose={() => setShowExport(false)}/>}
-      {showScanner && <QRScannerModal shelves={shelves} onFound={s => { setShowScanner(false); setSelectedShelf(s) }} onClose={() => setShowScanner(false)}/>}
-      {showImportCSV && <ImportCSVModal shelves={shelves} onClose={() => setShowImportCSV(false)} onDone={() => { setShowImportCSV(false); loadAll() }}/>}
-      {showHistory && <HistoryModal onClose={() => setShowHistory(false)}/>}
-      {showGlobalSearch && <GlobalSearchModal onShelfSelect={s => { setShowGlobalSearch(false); setSelectedShelf(s) }} onClose={() => setShowGlobalSearch(false)}/>}
-      {showRoomModal && <RoomModal room={editRoom} gridCols={gridCols} gridRows={gridRows} onClose={() => { setShowRoomModal(false); setEditRoom(null) }} onSave={() => { setShowRoomModal(false); setEditRoom(null); loadAll() }}/>}
     </div>
   )
 }

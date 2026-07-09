@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { useAppUpdate } from './hooks/useAppUpdate'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
-import AuthPage   from './pages/AuthPage'
-import DepotPage  from './pages/DepotPage'
-import PowerPage  from './pages/PowerPage'
-import AdminPage  from './pages/AdminPage'
-import AudioPage  from './pages/AudioPage'
+import { useTheme } from './hooks/useTheme'
+import AuthPage     from './pages/AuthPage'
+import DepotPage    from './pages/DepotPage'
+import MaterielPage from './pages/MaterielPage'
+import AdminPage    from './pages/AdminPage'
 import { supabase } from './lib/supabase'
 
 // ── Shelf deep-link handler ────────────────────────────
@@ -22,41 +22,46 @@ function ShelfRedirect({ shelfId, onBack }) {
   }, [shelfId])
 
   if (notFound) return <div className="page"><div className="page-content empty"><div className="empty-icon">❓</div><p>Étagère introuvable</p><button className="btn btn-primary" onClick={onBack}>Retour</button></div></div>
-  if (!shelf) return <div className="page"><div className="page-content" style={{display:'flex',justifyContent:'center',paddingTop:80}}><span className="spinner" style={{width:40,height:40}}/></div></div>
+  if (!shelf)   return <div className="page"><div className="page-content" style={{display:'flex',justifyContent:'center',paddingTop:80}}><span className="spinner" style={{width:40,height:40}}/></div></div>
   return <DepotPage initialShelfId={shelfId}/>
 }
 
-// ── Bottom navigation ──────────────────────────────────────────
-function BottomNav({ active, onChange }) {
-  const tabs = [
-    { id: 'depot',  icon: '🏭', label: 'Dépôt'  },
-    { id: 'power',  icon: '⚡', label: 'Watts'  },
-    { id: 'audio',  icon: '🔊', label: 'Son'    },
-    { id: 'admin',  icon: '👤', label: 'Compte' },
-  ]
+// ── Navigation ────────────────────────────────────────────────
+const TABS = [
+  { id: 'depot',    icon: '🏭', label: 'Dépôt'    },
+  { id: 'materiel', icon: '🎛️', label: 'Matériel' },
+  { id: 'admin',    icon: '👤', label: 'Compte'   },
+]
+
+function BottomNav({ active, onChange, themeIcon, onTheme }) {
   return (
     <nav className="bottom-nav">
-      {tabs.map(t => (
+      {TABS.map(t => (
         <button key={t.id} className={`nav-item ${active === t.id ? 'active' : ''}`} onClick={() => onChange(t.id)}>
           <span className="nav-icon">{t.icon}</span>
           {t.label}
         </button>
       ))}
+      <button className="nav-item" onClick={onTheme} title="Changer le thème (clair / sombre / système)">
+        <span className="nav-icon">{themeIcon}</span>
+        Thème
+      </button>
     </nav>
   )
 }
 
-// ── App shell ────────────────────────────────────────────────────────
+// ── App shell ─────────────────────────────────────────────────
 function AppShell() {
-  const { user, loading } = useAuth()
-  const [tab, setTab] = useState('depot')
+  const { user, loading }  = useAuth()
+  const [tab, setTab]      = useState('depot')
   const { updateAvailable, applyUpdate } = useAppUpdate()
+  const { themeIcon, cycleTheme } = useTheme()
 
   useEffect(() => {
     const path = window.location.pathname
     const base = import.meta.env.BASE_URL.replace(/\/$/, '')
     const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const m    = path.match(new RegExp(`^${escapedBase}/shelf/([a-f0-9-]{36})$`, 'i'))
+    const m = path.match(new RegExp(`^${escapedBase}/shelf/([a-f0-9-]{36})$`, 'i'))
     if (m) {
       setTab('depot')
       window.__pendingShelfId = m[1]
@@ -92,8 +97,7 @@ function AppShell() {
       {updateAvailable && (
         <div style={{
           position:'fixed', top:0, left:0, right:0, zIndex:9999,
-          background:'var(--indigo2)',
-          color:'#fff', padding:'10px 16px',
+          background:'var(--indigo2)', color:'#fff', padding:'10px 16px',
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           fontSize:14, fontWeight:600, boxShadow:'0 2px 16px rgba(0,0,0,0.4)',
         }}>
@@ -104,12 +108,12 @@ function AppShell() {
           }}>Mettre à jour</button>
         </div>
       )}
-      <BottomNav active={tab} onChange={setTab}/>
+      <BottomNav active={tab} onChange={setTab} themeIcon={themeIcon} onTheme={cycleTheme}/>
       <div className="app-content">
-        {tab === 'depot' && <DepotPage/>}
-        {tab === 'power' && <PowerPage/>}
-        {tab === 'audio' && <AudioPage/>}
-        {tab === 'admin' && <AdminPage/>}
+        {tab === 'depot'    && <DepotPage/>}
+        {tab === 'materiel' && <MaterielPage/>}
+
+        {tab === 'admin'    && <AdminPage/>}
       </div>
     </div>
   )

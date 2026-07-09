@@ -34,6 +34,36 @@
   --nav-w:     72px;
 }
 
+/* ── Dark theme (explicit) ──────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:      #0D0D14;
+  --bg2:     #16161F;
+  --bg3:     #1E1E2A;
+  --border:  #2C2C3E;
+  --border2: #3C3C52;
+  --text:    #EDEDF5;
+  --text2:   #9898B8;
+  --text3:   #5A5A78;
+  --shadow:    0 2px 12px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 24px rgba(0,0,0,0.6);
+}
+
+/* ── Dark theme (system preference, when no explicit theme set) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --bg:      #0D0D14;
+    --bg2:     #16161F;
+    --bg3:     #1E1E2A;
+    --border:  #2C2C3E;
+    --border2: #3C3C52;
+    --text:    #EDEDF5;
+    --text2:   #9898B8;
+    --text3:   #5A5A78;
+    --shadow:    0 2px 12px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 24px rgba(0,0,0,0.6);
+  }
+}
+
 /* ── Reset ──────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -242,9 +272,7 @@ textarea.input { resize: vertical; min-height: 80px; }
 /* ── Chips ───────────────────────────────────────────────────── */
 .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 12px; background: var(--bg3); border: 1px solid var(--border); color: var(--text2); }
 
-/* ══════════════════════════════════════════════════════════════
-   DESKTOP  (>= 768 px)
-   ══════════════════════════════════════════════════════════════ */
+/* DESKTOP  (>= 768 px) */
 @media (min-width: 768px) {
 
   /* Sidebar nav */
@@ -288,9 +316,7 @@ textarea.input { resize: vertical; min-height: 80px; }
   .grid-cell { border-radius: 10px; }
 }
 
-/* ══════════════════════════════════════════════════════════════
-   LARGE DESKTOP  (>= 1100 px)
-   ══════════════════════════════════════════════════════════════ */
+/* LARGE DESKTOP  (>= 1100 px) */
 @media (min-width: 1100px) {
   :root { --nav-w: 96px; }
   .nav-item { width: 72px; font-size: 11px; }
@@ -298,9 +324,7 @@ textarea.input { resize: vertical; min-height: 80px; }
   .modal { max-width: 560px; }
 }
 
-/* ══════════════════════════════════════════════════════════════
-   SMALL MOBILE  (< 380 px)
-   ══════════════════════════════════════════════════════════════ */
+/* SMALL MOBILE (< 380 px) */
 @media (max-width: 380px) {
   .form-row { grid-template-columns: 1fr; }
   .page-content { padding: 12px 14px; }
@@ -310,7 +334,7 @@ textarea.input { resize: vertical; min-height: 80px; }
   .nav-item { font-size: 10px; }
 }
 
-/* ── App shell ────────────────────────────────────────────────── */
+/* App shell */
 .app-shell {
   display: flex;
   flex-direction: column;
