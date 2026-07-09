@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAppUpdate } from './hooks/useAppUpdate'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
 import AuthPage   from './pages/AuthPage'
@@ -47,6 +48,7 @@ function BottomNav({ active, onChange }) {
 function AppShell() {
   const { user, loading } = useAuth()
   const [tab, setTab] = useState('depot')
+  const { updateAvailable, applyUpdate } = useAppUpdate()
 
   useEffect(() => {
     const path = window.location.pathname
@@ -84,6 +86,21 @@ function AppShell() {
 
   return (
     <div className="app-shell">
+      {updateAvailable && (
+        <div style={{
+          position:'fixed', top:0, left:0, right:0, zIndex:9999,
+          background:'linear-gradient(90deg,var(--indigo),var(--violet))',
+          color:'#fff', padding:'10px 16px',
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
+          fontSize:14, fontWeight:600, boxShadow:'0 2px 16px rgba(0,0,0,0.4)',
+        }}>
+          <span>🚀 Nouvelle version disponible !</span>
+          <button onClick={applyUpdate} style={{
+            background:'#fff', color:'var(--indigo)', border:'none', borderRadius:8,
+            padding:'6px 14px', fontWeight:700, fontSize:13, cursor:'pointer',
+          }}>Mettre à jour</button>
+        </div>
+      )}
       <BottomNav active={tab} onChange={setTab}/>
       <div className="app-content">
         {tab === 'depot' && <DepotPage/>}
