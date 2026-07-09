@@ -609,6 +609,107 @@ ${exportData.map(({ shelf, products, sections, qrUrl }) => {
   )
 }
 
+// ── Room Modal ────────────────────────────────────────────────
+function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
+  const [name,   setName]   = useState(room?.name   || '')
+  const [color,  setColor]  = useState(room?.color  || '#7C3AED')
+  const [gridX,  setGridX]  = useState(room?.grid_x ?? 0)
+  const [gridY,  setGridY]  = useState(room?.grid_y ?? 0)
+  const [gridW,  setGridW]  = useState(room?.grid_w ?? 4)
+  const [gridH,  setGridH]  = useState(room?.grid_h ?? 3)
+  const [desc,   setDesc]   = useState(room?.description || '')
+  const [loading, setLoading] = useState(false)
+  const toast = useToast()
+
+  async function handleSave() {
+    if (!name.trim()) { toast('Nom requis', 'error'); return }
+    setLoading(true)
+    try {
+      const payload = {
+        name: name.trim(), color,
+        grid_x: +gridX, grid_y: +gridY,
+        grid_w: Math.max(1,+gridW), grid_h: Math.max(1,+gridH),
+        description: desc,
+      }
+      if (room?.id) {
+        const { error } = await supabase.from('depot_rooms').update(payload).eq('id', room.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('depot_rooms').insert(payload)
+        if (error) throw error
+      }
+      onSave()
+      toast(room?.id ? 'Pièce mise à jour' : 'Pièce créée', 'success')
+      onClose()
+    } catch(err) {
+      toast(err.message, 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Supprimer cette pièce du plan ?')) return
+    const { error } = await supabase.from('depot_rooms').delete().eq('id', room.id)
+    if (error) { toast('Erreur : ' + error.message, 'error'); return }
+    onSave(); onClose()
+    toast('Pièce supprimée', 'success')
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3 className="modal-title">🏠 {room?.id ? 'Modifier' : 'Nouvelle'} pièce</h3>
+        <div className="form-group">
+          <label className="label">Nom</label>
+          <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Réserve, Scène, Coulisses..."/>
+        </div>
+        <div className="form-group">
+          <label className="label">Couleur</label>
+          <ColorPicker value={color} onChange={setColor}/>
+        </div>
+        <div className="form-group">
+          <label className="label">Position dans la grille</label>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="label" style={{fontSize:11,color:"var(--text3)"}}>X (0 à {gridCols-1})</label>
+              <input className="input" type="number" min={0} max={gridCols-1} value={gridX} onChange={e => setGridX(e.target.value)}/>
+            </div>
+            <div className="form-group">
+              <label className="label" style={{fontSize:11,color:"var(--text3)"}}>Y (0 à {gridRows-1})</label>
+              <input className="input" type="number" min={0} max={gridRows-1} value={gridY} onChange={e => setGridY(e.target.value)}/>
+            </div>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="label">Taille</label>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="label" style={{fontSize:11,color:"var(--text3)"}}>Largeur (colonnes)</label>
+              <input className="input" type="number" min={1} max={gridCols} value={gridW} onChange={e => setGridW(e.target.value)}/>
+            </div>
+            <div className="form-group">
+              <label className="label" style={{fontSize:11,color:"var(--text3)"}}>Hauteur (rangées)</label>
+              <input className="input" type="number" min={1} max={gridRows} value={gridH} onChange={e => setGridH(e.target.value)}/>
+            </div>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="label">Description</label>
+          <textarea className="input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Notes sur cette zone..."/>
+        </div>
+        <div className="form-actions">
+          <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
+          {room?.id && <button className="btn btn-danger" onClick={handleDelete}>🗑️ Supprimer</button>}
+          <button className="btn btn-primary" onClick={handleSave} disabled={loading}>
+            {loading ? <span className="spinner" style={{borderTopColor:"#fff"}}/> : "Enregistrer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main DepotPage ─────────────────────────────────────────────
 export default function DepotPage() {
   const { isEditor } = useAuth()
@@ -630,6 +731,9 @@ export default function DepotPage() {
   const [showExport,    setShowExport]    = useState(false)
   const [dragMode,      setDragMode]      = useState(false)
   const [dragShelfId,   setDragShelfId]   = useState(null)
+  const [rooms,         setRooms]         = useState([])
+  const [showRoomModal, setShowRoomModal] = useState(false)
+  const [editRoom,      setEditRoom]      = useState(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -642,13 +746,15 @@ export default function DepotPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: s }, { data: z }] = await Promise.all([
+    const [{ data: s }, { data: z }, { data: r }] = await Promise.all([
       supabase.from('shelves').select('*').order('name'),
       supabase.from('depot_zones').select('*').order('name'),
+      supabase.from('depot_rooms').select('*').order('name'),
     ])
     const shelvesList = s || []
     setShelves(shelvesList)
     setZones(z || [])
+    setRooms(r || [])
     setLoading(false)
     if (window.__pendingShelfId) {
       const target = shelvesList.find(sh => sh.id === window.__pendingShelfId)
@@ -729,6 +835,7 @@ export default function DepotPage() {
             )}
             <button className="btn btn-secondary btn-sm" onClick={() => setShowGridSettings(true)} title="Réglages grille">⚙️</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowExport(true)} title="Exporter PDF">📄</button>
+            {isEditor && <button className="btn btn-secondary btn-sm" onClick={() => { setEditRoom(null); setShowRoomModal(true) }} title="Ajouter une pièce">🏠</button>}
             {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddShelf(true)}>+ Étagère</button>}
           </div>
         </div>
@@ -743,29 +850,60 @@ export default function DepotPage() {
           </div>
         ) : view === 'grid' ? (
           <>
-            {zones.length > 0 && (
-              <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:16}}>
+            {(zones.length > 0 || rooms.length > 0) && (
+              <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:16,alignItems:'center'}}>
                 {zones.map(z => (
                   <div key={z.id} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)'}}>
                     <div style={{width:12,height:12,borderRadius:3,background:z.color}}/>
                     {z.name}
                   </div>
                 ))}
+                {rooms.length > 0 && <span style={{width:1,height:14,background:'var(--border)',display:'inline-block'}}/>}
+                {rooms.map(r => (
+                  <div key={r.id} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)',cursor:isEditor?'pointer':'default'}} onClick={isEditor ? () => { setEditRoom(r); setShowRoomModal(true) } : undefined}>
+                    <div style={{width:12,height:12,borderRadius:3,background:r.color,border:`1px solid ${r.color}`}}/>
+                    🏠 {r.name}
+                  </div>
+                ))}
               </div>
             )}
 
             <div style={{overflowX:'auto',paddingBottom:8}}>
-              <div style={{
-                display:'grid',
-                gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,
-                gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,
-                gap:4,
-                background:'var(--bg3)',
-                border:'1px solid var(--border)',
-                borderRadius:'var(--radius-lg)',
-                padding:10,
-                width:'fit-content',
-              }}>
+              <div style={{position:'relative',width:'fit-content'}}>
+                {/* SVG overlay: room outlines + labels */}
+                {rooms.length > 0 && (() => {
+                  const gap = 4, pad = 10
+                  const totalW = gridCols * cellSize + (gridCols - 1) * gap + pad * 2
+                  const totalH = gridRows * cellSize + (gridRows - 1) * gap + pad * 2
+                  return (
+                    <svg width={totalW} height={totalH} style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2,borderRadius:'var(--radius-lg)'}}>
+                      {rooms.map(room => {
+                        const rx = pad + room.grid_x * (cellSize + gap)
+                        const ry = pad + room.grid_y * (cellSize + gap)
+                        const rw = room.grid_w * cellSize + (room.grid_w - 1) * gap
+                        const rh = room.grid_h * cellSize + (room.grid_h - 1) * gap
+                        return (
+                          <g key={room.id} style={{cursor: isEditor ? 'pointer' : 'default'}} onClick={isEditor ? () => { setEditRoom(room); setShowRoomModal(true) } : undefined} style={{pointerEvents: isEditor ? 'auto' : 'none'}}>
+                            <rect x={rx} y={ry} width={rw} height={rh} fill={room.color + '18'} stroke={room.color} strokeWidth={2} rx={8} ry={8}/>
+                            <rect x={rx+4} y={ry+2} width={Math.min(rw-8, room.name.length * 7 + 12)} height={17} fill={room.color + 'CC'} rx={4}/>
+                            <text x={rx+10} y={ry+13} fill="#fff" fontSize={10} fontWeight="700" fontFamily="Inter,system-ui,sans-serif">{room.name}</text>
+                          </g>
+                        )
+                      })}
+                    </svg>
+                  )
+                })()}
+                <div style={{
+                  display:'grid',
+                  gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,
+                  gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,
+                  gap:4,
+                  background:'var(--bg3)',
+                  border:'1px solid var(--border)',
+                  borderRadius:'var(--radius-lg)',
+                  padding:10,
+                  width:'fit-content',
+                }}>
                 {cells.map(({ x, y, shelf: cell }) => {
                   const w = Math.max(1, cell?.grid_w || 1)
                   const h = Math.max(1, cell?.grid_h || 1)
@@ -806,8 +944,9 @@ export default function DepotPage() {
                     </div>
                   )
                 })}
-              </div>
-            </div>
+                </div>{/* grid */}
+              </div>{/* position:relative wrapper */}
+            </div>{/* overflowX auto */}
             <p style={{color:'var(--text3)',fontSize:12,marginTop:10,textAlign:'center'}}>
               {dragMode ? '↕️ Glisse les étagères · clique ↕️ pour quitter' : 'Appuie sur une case pour voir son contenu · + pour ajouter'}
             </p>
@@ -873,6 +1012,15 @@ export default function DepotPage() {
         />
       )}
       {showExport && <ExportModal shelves={shelves} onClose={() => setShowExport(false)}/>}
+      {showRoomModal && (
+        <RoomModal
+          room={editRoom}
+          gridCols={gridCols}
+          gridRows={gridRows}
+          onClose={() => { setShowRoomModal(false); setEditRoom(null) }}
+          onSave={loadAll}
+        />
+      )}
     </div>
   )
 }
