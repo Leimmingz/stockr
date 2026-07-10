@@ -159,7 +159,7 @@ function ProductList({ products }) {
               {p.description && <div style={{fontSize:12,color:'var(--text2)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.description}</div>}
               {p.tags && (
                 <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
-                  {p.tags.split(',').map(t => t.trim()).filter(Boolean).map(t => (
+                  {(Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean).map(t => (
                     <span key={t} className="chip" style={{fontSize:11,padding:'2px 8px'}}>{t}</span>
                   ))}
                 </div>

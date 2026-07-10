@@ -78,8 +78,13 @@ function LightModal({ item, onClose, onSave }) {
         dmx_channels: form.dmx_channels ? Math.min(512, +form.dmx_channels) : null,
         weight_kg: form.weight_kg ? Math.min(9999, +form.weight_kg) : null, image_url
       }
-      if (item?.id) await supabase.from('projectors').update(payload).eq('id', item.id)
-      else await supabase.from('projectors').insert(payload)
+      if (item?.id) {
+        const { error } = await supabase.from('projectors').update(payload).eq('id', item.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('projectors').insert(payload)
+        if (error) throw error
+      }
       toast(item?.id ? 'Projecteur mis à jour' : 'Projecteur ajouté', 'success')
       onSave(); onClose()
     } catch(err) { toast(err.message, 'error') }
@@ -168,8 +173,13 @@ function AudioModal({ item, onClose, onSave }) {
         weight_kg: form.weight_kg ? Math.min(9999, +form.weight_kg) : null,
         notes: (form.notes||'').slice(0,500)||null, image_url
       }
-      if (item?.id) await supabase.from('audio_equipment').update(payload).eq('id', item.id)
-      else await supabase.from('audio_equipment').insert(payload)
+      if (item?.id) {
+        const { error } = await supabase.from('audio_equipment').update(payload).eq('id', item.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('audio_equipment').insert(payload)
+        if (error) throw error
+      }
       toast(item?.id ? 'Équipement mis à jour' : 'Équipement ajouté', 'success')
       onSave(); onClose()
     } catch(err) { toast(err.message, 'error') }

@@ -213,13 +213,14 @@ function ShelfModal({ shelf, zones, gridCols, gridRows, onClose, onSave }) {
 
 // ── Product Card ───────────────────────────────────────────────
 function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
-  const toast = useToast()
+  const toast    = useToast()
+  const confirmFn = useConfirm()
   const section = sections.find(s => s.id === product.section_id)
   const [localQty, setLocalQty] = useState(product.quantity)
   const [qtyLoading, setQtyLoading] = useState(false)
   const pendingDelta = useRef(0)
   const flushTimer   = useRef(null)
-  const tags = product.tags ? product.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+  const tags = product.tags ? (Array.isArray(product.tags) ? product.tags : product.tags.split(',')).map(t => t.trim()).filter(Boolean) : []
 
   // Keep local qty in sync when parent refreshes (from another client, etc.)
   useEffect(() => { setLocalQty(product.quantity) }, [product.quantity])
@@ -258,7 +259,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
   const [histLoading, setHistLoading] = useState(false)
 
   async function handleDelete() {
-    if (!window.__depotConfirm || !await window.__depotConfirm('Supprimer ce produit ?')) return
+    if (!await confirmFn('Supprimer ce produit ?', { confirmLabel: 'Supprimer' })) return
     await logMovement('delete', product.name, shelfName, product.shelf_id)
     const { error } = await supabase.from('products').delete().eq('id', product.id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
@@ -431,8 +432,9 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       let q = supabase.from('products').select('*, shelves(name)')
         .neq('shelf_id', shelfId).order('name').limit(40)
       const s = stockSearch.trim()
-      if (s) q = q.or(`name.ilike.%${s}%,reference.ilike.%${s}%,tags.ilike.%${s}%`)
-      const { data } = await q
+      if (s) q = q.or(`name.ilike.%${s}%,reference.ilike.%${s}%`)
+      const { data, error } = await q
+      if (error) console.error('stock search error', error)
       setStockResults(data || [])
       setStockLoading(false)
     }, 250)
@@ -465,7 +467,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
       const { error: insErr } = await supabase.from('products').insert({
         name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
-        unit, description: desc, tags: tags.trim(),
+        unit, description: desc, tags: tags.trim() ? tags.trim().split(',').map(t=>t.trim()).filter(Boolean) : null,
         shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
       })
       if (insErr) throw insErr
@@ -495,7 +497,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
           ) : stockResults.length === 0 ? (
             <div className="empty" style={{padding:'20px 0'}}>
               <div className="empty-icon" style={{fontSize:32}}>📦</div>
-              <p>{stockSearch ? 'Aucun résultat' : 'Tape pour chercher'}</p>
+              <p>{stockSearch ? 'Aucun résultat' : 'Aucun produit dans les autres étagères'}</p>
             </div>
           ) : (
             <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflowY:'auto'}}>
@@ -935,60 +937,104 @@ function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
   )
 }
 
-// ── QR Scanner Modal (jsQR — fonctionne sur iOS, Android, desktop) ──
+// ── QR Scanner Modal — caméra live via getUserMedia + jsQR ──
 function QRScannerModal({ shelves, onFound, onClose }) {
-  const [scanning, setScanning] = useState(false)
-  const [status,   setStatus]   = useState('')
-  const toast = useToast()
+  const videoRef  = useRef(null)
+  const canvasRef = useRef(null)
+  const streamRef = useRef(null)
+  const animRef   = useRef(null)
+  const jsqrRef   = useRef(null)
+  const foundRef  = useRef(false)
+  const [status,  setStatus]  = useState('Démarrage de la caméra...')
+  const [camErr,  setCamErr]  = useState(null)
 
-  async function handleFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setScanning(true); setStatus('Analyse du QR code...')
-    try {
-      const jsQR = (await import('jsqr')).default
-      const img    = await createImageBitmap(file)
-      const canvas = document.createElement('canvas')
-      // Limite la résolution pour éviter les timeout sur mobile
-      const MAX = 1200
-      const ratio = Math.min(1, MAX / Math.max(img.width, img.height))
-      canvas.width  = Math.round(img.width  * ratio)
-      canvas.height = Math.round(img.height * ratio)
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      try {
+        const mod = await import('jsqr')
+        jsqrRef.current = mod.default
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+        })
+        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
+        streamRef.current = stream
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+          setStatus('Pointez vers un QR code Stockr...')
+          animRef.current = requestAnimationFrame(scan)
+        }
+      } catch(err) {
+        if (!cancelled) setCamErr(err.message)
+      }
+    }
+    init()
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(animRef.current)
+      streamRef.current?.getTracks().forEach(t => t.stop())
+    }
+  }, [])
+
+  function scan() {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video || !canvas || foundRef.current) return
+    if (video.readyState >= video.HAVE_ENOUGH_DATA) {
+      canvas.width  = video.videoWidth
+      canvas.height = video.videoHeight
       const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      ctx.drawImage(video, 0, 0)
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
-      if (!code) { toast('Aucun QR code détecté — réessaie avec une meilleure lumière', 'error'); setScanning(false); setStatus(''); return }
-      const match = code.data.match(/\/shelf\/([a-f0-9-]{36})/i)
-      if (!match) { toast('QR code non reconnu (pas un QR Stockr)', 'error'); setScanning(false); setStatus(''); return }
-      const shelf = shelves.find(s => s.id === match[1])
-      if (!shelf) { toast('Étagère introuvable', 'error'); setScanning(false); return }
-      setStatus('Étagère trouvée !')
-      setTimeout(() => { onFound(shelf); onClose() }, 400)
-    } catch(err) { toast('Erreur : ' + err.message, 'error'); setScanning(false); setStatus('') }
+      const code = jsqrRef.current?.(imageData.data, imageData.width, imageData.height)
+      if (code) {
+        const match = code.data.match(/\/shelf\/([a-f0-9-]{36})/i)
+        if (match) {
+          const shelf = shelves.find(s => s.id === match[1])
+          if (shelf) {
+            foundRef.current = true
+            setStatus('✅ Étagère trouvée !')
+            navigator.vibrate?.(100)
+            cancelAnimationFrame(animRef.current)
+            streamRef.current?.getTracks().forEach(t => t.stop())
+            setTimeout(() => { onFound(shelf); onClose() }, 600)
+            return
+          }
+        }
+      }
+    }
+    animRef.current = requestAnimationFrame(scan)
   }
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <h3 className="modal-title">📷 Scanner un QR Code</h3>
-        <p style={{color:'var(--text2)',fontSize:14,marginBottom:16}}>
-          Prends une photo du QR code d'une étagère pour l'ouvrir directement.<br/>
-          <span style={{fontSize:12,color:'var(--text3)'}}>Fonctionne sur iOS, Android et desktop.</span>
-        </p>
-        <label style={{display:'block',cursor:'pointer'}}>
-          <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={handleFile} disabled={scanning}/>
-          <div style={{border:'2px dashed var(--border)',borderRadius:12,padding:'40px 20px',textAlign:'center',background:'var(--bg3)',transition:'border-color 0.15s',cursor:'pointer'}}
-            onMouseEnter={e => e.currentTarget.style.borderColor='var(--indigo2)'}
-            onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
-            {scanning
-              ? <><span className="spinner" style={{width:36,height:36}}/><p style={{marginTop:14,color:'var(--text2)',fontSize:13,fontWeight:500}}>{status}</p></>
-              : <><div style={{fontSize:52}}>📷</div><p style={{marginTop:10,fontWeight:700,fontSize:15}}>Appuyer pour scanner</p><p style={{fontSize:12,color:'var(--text3)',marginTop:4}}>Ouvre la caméra ou la galerie</p></>
-            }
+      <div className="modal" style={{maxWidth:400,padding:0,overflow:'hidden'}}>
+        <div style={{padding:'16px 16px 12px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <h3 className="modal-title" style={{margin:0}}>📷 Scanner un QR Code</h3>
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>✕</button>
+        </div>
+        {camErr ? (
+          <div style={{padding:'24px 20px',textAlign:'center'}}>
+            <div style={{fontSize:48,marginBottom:12}}>📷</div>
+            <p style={{fontWeight:600,marginBottom:6}}>Caméra inaccessible</p>
+            <p style={{fontSize:13,color:'var(--text2)',marginBottom:16}}>{camErr}</p>
+            <p style={{fontSize:12,color:'var(--text3)'}}>Autorisez l'accès à la caméra dans les paramètres de votre navigateur.</p>
           </div>
-        </label>
-        <div className="form-actions" style={{marginTop:16}}>
-          <button className="btn btn-secondary" onClick={onClose}>Fermer</button>
+        ) : (
+          <div style={{position:'relative',background:'#000',aspectRatio:'4/3'}}>
+            <video ref={videoRef} playsInline muted style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+            <canvas ref={canvasRef} style={{display:'none'}}/>
+            <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+              <div style={{width:200,height:200,border:'3px solid rgba(255,255,255,0.9)',borderRadius:16,boxShadow:'0 0 0 9999px rgba(0,0,0,0.4)'}}/>
+            </div>
+            <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.65)',color:'#fff',fontSize:13,fontWeight:500,padding:'10px 16px',textAlign:'center'}}>
+              {status}
+            </div>
+          </div>
+        )}
+        <div style={{padding:'12px 16px'}}>
+          <button className="btn btn-secondary" style={{width:'100%'}} onClick={onClose}>Fermer</button>
         </div>
       </div>
     </div>
@@ -1062,7 +1108,7 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
           unit: String(r.unit || r.unite || 'pcs').slice(0, 50),
           description: String(r.description || r.notes || '').slice(0, 1000),
           min_quantity: Math.max(0, parseInt(r.min_quantity || r.min || '0') || 0),
-          tags: String(r.tags || r.categories || r.cat || '').slice(0, 500),
+          tags: String(r.tags || r.categories || r.cat || '').trim() ? String(r.tags || r.categories || r.cat || '').trim().split(',').map(t => t.trim()).filter(Boolean) : null,
         }))
         const { error } = await supabase.from('products').insert(products)
         if (error) throw error
@@ -1311,13 +1357,11 @@ export default function DepotPage() {
   const [dragShelfId,      setDragShelfId]      = useState(null)
   const [wiggleId,         setWiggleId]         = useState(null)
   const [dropTarget,       setDropTarget]       = useState(null)
-  const longPressRef = useRef(null)
-  const gridRef      = useRef(null)
+  const longPressRef  = useRef(null)
+  const gridRef       = useRef(null)
+  const pointerIdRef  = useRef(null)
   const [showRoomModal,    setShowRoomModal]    = useState(false)
   const [editRoom,         setEditRoom]         = useState(null)
-  const [roomDrawMode,     setRoomDrawMode]     = useState(false)
-  const [drawStart,        setDrawStart]        = useState(null)
-  const [drawHover,        setDrawHover]        = useState(null)
   const [gridZoom,         setGridZoom]         = useState(() => {
     try { return parseFloat(localStorage.getItem('gridZoom') || '1') } catch { return 1 }
   })
@@ -1335,9 +1379,7 @@ export default function DepotPage() {
   // Global keyboard shortcuts
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape') {
-        setRoomDrawMode(false); setDrawStart(null); setDrawHover(null)
-      }
+      if (e.key === 'Escape') { /* handled by modals */ }
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault(); setShowGlobalSearch(true)
       }
@@ -1425,15 +1467,6 @@ export default function DepotPage() {
     return z?.color || '#4F46E5'
   }
 
-  function getDrawRect() {
-    if (!drawStart || !drawHover) return null
-    const x = Math.min(drawStart.x, drawHover.x)
-    const y = Math.min(drawStart.y, drawHover.y)
-    const w = Math.abs(drawHover.x - drawStart.x) + 1
-    const h = Math.abs(drawHover.y - drawStart.y) + 1
-    return { x, y, w, h }
-  }
-
   const filtered = shelves.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
   const { grid, occupied } = buildGrid()
   const clampedZoom = Math.max(0.6, Math.min(2.0, gridZoom))
@@ -1447,7 +1480,6 @@ export default function DepotPage() {
   }
 
   const totalLowStock = Object.values(productCounts).reduce((a, c) => a + c.lowStock, 0)
-  const drawRect = getDrawRect()
 
   return (
     <div className="page">
@@ -1496,8 +1528,7 @@ export default function DepotPage() {
                       { label:'⚙️ Réglages grille',   action:() => { setShowGridSettings(true); setShowMore(false) } },
                       ...(isEditor ? [
                         { label:`↕️ Mode déplacement ${dragMode?'(actif)':''}`, action:() => { setDragMode(m => !m); setRoomDrawMode(false); setShowMore(false) }, active: dragMode },
-                        { label:`✏️ Dessiner pièce ${roomDrawMode?'(actif)':''}`, action:() => { setRoomDrawMode(m => !m); setDragMode(false); setShowMore(false) }, active: roomDrawMode },
-                        { label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
+{ label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
                       ] : []),
                     ].map((item, i) => (
                       <button key={i} onClick={item.action} style={{
@@ -1521,7 +1552,6 @@ export default function DepotPage() {
           </div>
         </div>
         {dragMode && <p style={{fontSize:12,color:'var(--indigo)',marginTop:6,fontWeight:500}}>↕️ Glisse une étagère vers une case vide · clique ↕️ pour quitter</p>}
-        {roomDrawMode && <p style={{fontSize:12,color:'var(--violet)',marginTop:6,fontWeight:500}}>✏️ Clique et glisse pour dessiner une pièce · Echap pour annuler</p>}
         <input className="input" style={{marginTop:12}} placeholder="🔍 Rechercher une étagère... · Ctrl+K pour chercher les produits" value={search} onChange={e => setSearch(e.target.value.slice(0, 200))}/>
       </div>
 
@@ -1550,13 +1580,13 @@ export default function DepotPage() {
             )}
 
             <div style={{overflowX:'auto',paddingBottom:8}}
-              onMouseLeave={() => { if (roomDrawMode) { setDrawStart(null); setDrawHover(null) } }}>
-              <div style={{position:'relative',width:'fit-content',userSelect:roomDrawMode?'none':'auto'}}>
+>
+              <div style={{position:'relative',width:'fit-content',userSelect:'auto'}}>
                 {(() => {
                   const gap = 4, pad = 10
                   const totalW = gridCols * cellSize + (gridCols - 1) * gap + pad * 2
                   const totalH = gridRows * cellSize + (gridRows - 1) * gap + pad * 2
-                  if (rooms.length === 0 && !drawRect) return null
+                  if (rooms.length === 0) return null
                   return (
                     <svg width={totalW} height={totalH} style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:2,borderRadius:'var(--radius-lg)'}}>
                       {rooms.map(room => {
@@ -1573,13 +1603,7 @@ export default function DepotPage() {
                           </g>
                         )
                       })}
-                      {drawRect && (() => {
-                        const rx = pad + drawRect.x * (cellSize + gap)
-                        const ry = pad + drawRect.y * (cellSize + gap)
-                        const rw = drawRect.w * cellSize + (drawRect.w - 1) * gap
-                        const rh = drawRect.h * cellSize + (drawRect.h - 1) * gap
-                        return <rect x={rx} y={ry} width={rw} height={rh} fill="#7C3AED22" stroke="#7C3AED" strokeWidth={2} strokeDasharray="6 3" rx={8}/>
-                      })()}
+  
                     </svg>
                   )
                 })()}
@@ -1612,41 +1636,36 @@ export default function DepotPage() {
                       style={{
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
                         ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:(isDragging||wiggleId===cell?.id)?0.85:1} : {}),
-                        cursor:roomDrawMode?'crosshair':wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
-                        touchAction: cell && isEditor && !roomDrawMode ? 'none' : 'auto',
+                        cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
+                        touchAction: cell && isEditor ? 'none' : 'auto',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
-                      draggable={dragMode && !!cell && !roomDrawMode}
-                      onDragStart={cell && !roomDrawMode ? () => setDragShelfId(cell.id) : undefined}
+                      draggable={dragMode && !!cell}
+                      onDragStart={cell ? () => setDragShelfId(cell.id) : undefined}
                       onDragEnd={() => setDragShelfId(null)}
                       onDragOver={e => { if (dragMode) e.preventDefault() }}
                       onDrop={() => { if (dragMode && !cell) handleDrop(x, y) }}
                       onPointerDown={e => {
-                        if (roomDrawMode) { e.preventDefault(); setDrawStart({x,y}); setDrawHover({x,y}); return }
                         if (!cell || !isEditor) return
                         e.preventDefault()
+                        pointerIdRef.current = e.pointerId
                         longPressRef.current = setTimeout(() => {
                           setWiggleId(cell.id)
                           navigator.vibrate?.(40)
+                          try { gridRef.current?.setPointerCapture(pointerIdRef.current) } catch {}
                         }, 480)
                       }}
                       onPointerUp={e => {
                         clearTimeout(longPressRef.current)
-                        if (roomDrawMode && drawStart) {
-                          const rect2 = getDrawRect()
-                          if (rect2) { setEditRoom({grid_x:rect2.x,grid_y:rect2.y,grid_w:rect2.w,grid_h:rect2.h}); setShowRoomModal(true) }
-                          setDrawStart(null); setDrawHover(null); setRoomDrawMode(false)
-                        }
                         if (wiggleId) return // handled by grid container
-                        if (!dragMode && !roomDrawMode) {
+                        if (!dragMode) {
                           if (cell) setSelectedShelf(cell)
                           else if (isEditor) setShowAddShelf(true)
                         }
                       }}
                       onPointerCancel={() => { clearTimeout(longPressRef.current); setWiggleId(null); setDropTarget(null) }}
-                      onPointerEnter={() => { if (roomDrawMode && drawStart) setDrawHover({x,y}) }}
-                      onClick={() => { if (dragMode || roomDrawMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
+                      onClick={() => { if (dragMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >
                       {cell ? (
@@ -1672,7 +1691,7 @@ export default function DepotPage() {
               </div>
             </div>
             <p style={{color:'var(--text3)',fontSize:12,marginTop:10,textAlign:'center'}}>
-              {roomDrawMode?'✏️ Clique et glisse pour dessiner une pièce':dragMode?'↕️ Glisse les étagères':'Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits'}
+              {dragMode?'↕️ Glisse les étagères pour les repositionner':'Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits'}
             </p>
           </>
         ) : (

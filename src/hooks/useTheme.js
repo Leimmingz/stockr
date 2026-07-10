@@ -14,7 +14,16 @@ export function useTheme() {
     try { return localStorage.getItem('theme') || 'system' } catch { return 'system' }
   })
 
-  useEffect(() => { applyTheme(theme) }, [theme])
+  useEffect(() => {
+    applyTheme(theme)
+    if (theme !== 'system') return
+    // En mode système, re-appliquer si l'OS change de thème
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!mq) return
+    const handler = () => applyTheme('system')
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
 
   function setTheme(t) {
     setThemeState(t)

@@ -103,7 +103,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <div style={{fontWeight:700,fontSize:18}}>{profile?.username}</div>
-                  <div style={{color:'var(--text2)',fontSize:14,marginTop:2}}>{profile?.email}</div>
+                  <div style={{color:'var(--text2)',fontSize:14,marginTop:2}}>{user?.email}</div>
                   <div style={{marginTop:6}}>{roleBadge(profile?.role)}</div>
                 </div>
               </div>
