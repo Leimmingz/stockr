@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { useConfirm } from '../hooks/useConfirm'
+import { Icon } from '../components/Icon'
 
 export default function AdminPage() {
   const { user, profile, isAdmin, signOut, updateUserRole } = useAuth()
@@ -77,28 +78,28 @@ export default function AdminPage() {
   }
 
   const PERMS = [
-    { icon:'👁️', label:'Voir le depot et les equipements', ok: true },
-    { icon:'✏️', label:'Modifier etageres et produits',    ok: ['admin','editor'].includes(profile?.role) },
-    { icon:'🎛️', label:'Modifier le catalogue materiel',  ok: ['admin','editor'].includes(profile?.role) },
-    { icon:'👑', label:'Gerer les utilisateurs',           ok: profile?.role === 'admin' },
+    { icon:'eye',    label:'Voir le dépôt et les équipements', ok: true },
+    { icon:'edit',   label:'Modifier étagères et produits',    ok: ['admin','editor'].includes(profile?.role) },
+    { icon:'sliders',label:'Modifier le catalogue matériel',   ok: ['admin','editor'].includes(profile?.role) },
+    { icon:'crown',  label:'Gérer les utilisateurs',           ok: profile?.role === 'admin' },
   ]
 
   return (
     <div className="page">
       <div className="page-header">
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <h1>👤 Compte</h1>
-          <button className="btn btn-secondary btn-sm" onClick={signOut}>Deconnexion</button>
+          <h1 style={{display:'flex',alignItems:'center',gap:8}}><Icon name="user" size={20}/> Compte</h1>
+          <button className="btn btn-secondary btn-sm" onClick={signOut}>Déconnexion</button>
         </div>
         <div style={{display:'flex',gap:6,marginTop:12,flexWrap:'wrap'}}>
           {isAdmin && (
-            <button className={`btn btn-sm ${tab==='users'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('users')}>
-              👥 Utilisateurs
+            <button className={`btn btn-sm ${tab==='users'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('users')} style={{display:'flex',alignItems:'center',gap:6}}>
+              <Icon name="users" size={14}/> Utilisateurs
             </button>
           )}
           <button className={`btn btn-sm ${tab==='profile'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('profile')}>Profil</button>
-          <button className={`btn btn-sm ${tab==='security'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('security')}>🔒 Securite</button>
-          <button className={`btn btn-sm ${tab==='about'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('about')}>ℹ️ À propos</button>
+          <button className={`btn btn-sm ${tab==='security'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('security')} style={{display:'flex',alignItems:'center',gap:6}}><Icon name="lock" size={14}/> Sécurité</button>
+          <button className={`btn btn-sm ${tab==='about'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('about')} style={{display:'flex',alignItems:'center',gap:6}}><Icon name="info" size={14}/> À propos</button>
         </div>
       </div>
 
@@ -126,9 +127,9 @@ export default function AdminPage() {
               <div style={{fontWeight:600,marginBottom:12,fontSize:14}}>Permissions</div>
               {PERMS.map((p, i) => (
                 <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom: i < PERMS.length-1 ? '1px solid var(--border)' : 'none'}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{p.icon}</span>
+                  <span style={{flexShrink:0,color:p.ok?'var(--indigo2)':'var(--text3)'}}><Icon name={p.icon} size={17} strokeWidth={1.8}/></span>
                   <span style={{flex:1,fontSize:14,color:p.ok?'var(--text)':'var(--text3)'}}>{p.label}</span>
-                  <span style={{fontSize:15}}>{p.ok ? '✅' : '🔒'}</span>
+                  <span style={{color:p.ok?'var(--green)':'var(--text3)'}}><Icon name={p.ok ? 'check' : 'lock'} size={16}/></span>
                 </div>
               ))}
             </div>
@@ -173,7 +174,7 @@ export default function AdminPage() {
               )}
               <div className="form-actions" style={{marginTop:8}}>
                 <button className="btn btn-primary" type="submit" disabled={pwLoading}>
-                  {pwLoading ? <span className="spinner" style={{borderTopColor:'#fff'}}/> : '🔒 Mettre a jour'}
+                  {pwLoading ? <span className="spinner" style={{borderTopColor:'#fff'}}/> : 'Mettre à jour'}
                 </button>
               </div>
             </form>
@@ -184,49 +185,56 @@ export default function AdminPage() {
           <div>
             <div className="card" style={{marginBottom:16,textAlign:'center',padding:'28px 20px'}}>
               <svg viewBox="0 0 80 40" width="80" height="40" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:14}}>
-                <defs><linearGradient id="lgAbout" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
+                <defs><linearGradient id="lgAbout" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#A8501F"/><stop offset="100%" stopColor="#C2703D"/></linearGradient></defs>
                 <rect x="1" y="1" width="3" height="38" rx="1.5" fill="url(#lgAbout)"/>
                 <rect x="28" y="1" width="3" height="38" rx="1.5" fill="url(#lgAbout)"/>
                 <rect x="1" y="1" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
                 <rect x="1" y="19" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
                 <rect x="1" y="36" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
-                <rect x="5" y="7" width="8" height="10" rx="1.5" fill="#818CF8" opacity="0.9"/>
-                <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#A78BFA" opacity="0.8"/>
-                <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#A78BFA" opacity="0.9"/>
-                <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#818CF8" opacity="0.8"/>
-                <text x="36" y="28" fontSize="18" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lgAbout)">r</tspan></text>
+                <rect x="5" y="7" width="8" height="10" rx="1.5" fill="#D99B6C" opacity="0.9"/>
+                <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#C2703D" opacity="0.8"/>
+                <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#C2703D" opacity="0.9"/>
+                <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#D99B6C" opacity="0.8"/>
+                <text x="36" y="28" fontSize="18" fontWeight="600" fill="var(--text)" fontFamily="Fraunces, Georgia, serif">Stock<tspan fill="url(#lgAbout)">r</tspan></text>
               </svg>
-              <div style={{fontSize:14,color:'var(--text2)',marginBottom:4}}>Gestion de dépôt & matériel événementiel</div>
-              <div style={{display:'inline-block',fontSize:13,fontWeight:700,color:'var(--indigo2)',background:'rgba(79,70,229,0.1)',border:'1px solid rgba(79,70,229,0.25)',borderRadius:20,padding:'4px 14px',marginTop:8}}>
+              <div style={{fontSize:14,color:'var(--text2)',marginBottom:4}}>Ton dépôt, ton matériel, un seul endroit.</div>
+              <div style={{display:'inline-block',fontSize:13,fontWeight:700,color:'var(--indigo2)',background:'rgba(194,112,61,0.1)',border:'1px solid rgba(194,112,61,0.25)',borderRadius:20,padding:'4px 14px',marginTop:8}}>
                 Version {appInfo?.version || '…'}
               </div>
               {appInfo?.notes && <div style={{fontSize:12,color:'var(--text3)',marginTop:10}}>{appInfo.notes}</div>}
             </div>
 
             <div className="card" style={{marginBottom:16}}>
-              <div style={{fontWeight:700,marginBottom:10}}>📲 Installer l'application</div>
+              <div className="item-name" style={{fontSize:16,marginBottom:10}}>Installer l'application</div>
               <div style={{fontSize:13,color:'var(--text2)',marginBottom:14}}>
                 Récupère la dernière version installable (APK Android) depuis les releases GitHub, ou ouvre directement l'app dans le navigateur.
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                <a href="https://github.com/Leimmingz/stockr/releases" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{textDecoration:'none',textAlign:'center'}}>
-                  ⬇️ Voir les releases (APK)
+                <a href="https://github.com/Leimmingz/stockr/releases" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{textDecoration:'none',textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+                  <Icon name="download" size={15}/> Voir les releases (APK)
                 </a>
-                <a href="https://leimmingz.github.io/stockr/" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{textDecoration:'none',textAlign:'center'}}>
-                  🌐 Ouvrir l'app dans le navigateur
+                <a href="https://leimmingz.github.io/stockr/" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{textDecoration:'none',textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center',gap:7}}>
+                  <Icon name="external" size={15}/> Ouvrir l'app dans le navigateur
                 </a>
               </div>
             </div>
 
             <div className="card">
-              <div style={{fontWeight:700,marginBottom:10}}>✨ Fonctionnalités</div>
-              <div style={{display:'flex',flexDirection:'column',gap:10,fontSize:13,color:'var(--text2)'}}>
-                <div>🏭 Dépôt visuel en grille : étagères, sections, QR codes imprimables</div>
-                <div>🎛️ Catalogue matériel : projecteurs, audio, lecture automatique de fiches techniques (IA)</div>
-                <div>🔢 Calcul de puissance électrique et vérification de circuits</div>
-                <div>👥 Gestion des rôles : Admin, Éditeur, Lecteur</div>
-                <div>🔄 Synchronisation en temps réel entre tous les appareils</div>
-                <div>📱 Installable comme application (PWA / APK Android)</div>
+              <div className="item-name" style={{fontSize:16,marginBottom:12}}>Fonctionnalités</div>
+              <div style={{display:'flex',flexDirection:'column',gap:12,fontSize:13,color:'var(--text2)'}}>
+                {[
+                  ['warehouse', 'Dépôt visuel en grille, avec sections et QR codes imprimables'],
+                  ['sliders',   'Catalogue matériel — projecteurs et audio, fiches techniques lues automatiquement'],
+                  ['calc',      'Calcul de puissance électrique et vérification de circuits'],
+                  ['users',     'Rôles Admin, Éditeur et Lecteur pour toute l\u2019équipe'],
+                  ['refresh',   'Synchronisation en temps réel entre tous les appareils'],
+                  ['home',      'Installable comme une vraie application (PWA et APK Android)'],
+                ].map(([icon, text]) => (
+                  <div key={icon} style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                    <span style={{color:'var(--indigo2)',flexShrink:0,marginTop:1}}><Icon name={icon} size={16} strokeWidth={1.8}/></span>
+                    <span>{text}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -269,9 +277,9 @@ export default function AdminPage() {
                       <div style={{marginTop:12,display:'flex',gap:8,alignItems:'center'}}>
                         <select className="input" value={u.role} onChange={e => handleRoleChange(u.id, e.target.value)}
                           disabled={updating === u.id || u.id === profile?.id} style={{flex:1,padding:'7px 10px'}}>
-                          <option value="reader">👁️ Lecteur</option>
-                          <option value="editor">✏️ Editeur</option>
-                          <option value="admin">👑 Admin</option>
+                          <option value="reader">Lecteur</option>
+                          <option value="editor">Éditeur</option>
+                          <option value="admin">Admin</option>
                         </select>
                         {updating === u.id && <span className="spinner" style={{width:16,height:16,flexShrink:0}}/>}
                         {u.id !== profile?.id && (

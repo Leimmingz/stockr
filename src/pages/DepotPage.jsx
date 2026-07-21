@@ -5,8 +5,9 @@ import { useToast }   from '../hooks/useToast'
 import { useConfirm } from '../hooks/useConfirm'
 import QRCode from 'qrcode'
 import { compressAndUpload } from '../lib/imageUtils'
+import { Icon } from '../components/Icon'
 
-const PRESET_COLORS = ['#4F46E5','#7C3AED','#DB2777','#DC2626','#EA580C','#D97706','#65A30D','#16A34A','#0891B2','#0284C7','#6B7280','#374151']
+const PRESET_COLORS = ['#C2703D','#A8501F','#DB2777','#DC2626','#EA580C','#D97706','#65A30D','#16A34A','#0891B2','#0284C7','#6B7280','#374151']
 
 // ── Photo lightbox (full-screen preview) ───────────────────────
 // Any <img> in this file can become zoomable by adding:
@@ -105,8 +106,8 @@ function drawQrLogoBadge(qrDataUrl) {
 
       // Gradient rounded square
       const grad = ctx.createLinearGradient(cx - badge/2, cy - badge/2, cx + badge/2, cy + badge/2)
-      grad.addColorStop(0, '#4F46E5')
-      grad.addColorStop(1, '#7C3AED')
+      grad.addColorStop(0, '#A8501F')
+      grad.addColorStop(1, '#C2703D')
       ctx.fillStyle = grad
       roundRect(ctx, cx - badge/2, cy - badge/2, badge, badge, r)
       ctx.fill()
@@ -252,7 +253,7 @@ function ColorPicker({ value, onChange }) {
         ))}
       </div>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <input type="color" value={value||'#4F46E5'} onChange={e => onChange(e.target.value)}
+        <input type="color" value={value||'#C2703D'} onChange={e => onChange(e.target.value)}
           style={{width:36,height:36,border:'none',borderRadius:6,cursor:'pointer',padding:2,background:'var(--bg3)'}}/>
         <span style={{fontSize:13,color:'var(--text2)'}}>Couleur libre</span>
         {value && <button className="btn btn-ghost btn-sm" style={{fontSize:12}} onClick={() => onChange('')}>↩ Zone</button>}
@@ -504,9 +505,9 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
       borderRadius:'var(--radius)',border: isLow ? '1px solid rgba(220,38,38,0.3)' : '1px solid var(--border)'}}>
       {product.image_url && <img src={product.image_url} onClick={() => openLightbox(product.image_url, product.name)} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2,cursor:'zoom-in'}} alt={product.name}/>}
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+        <div className="item-name" style={{fontSize:15,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           {product.name}
-          {isLow && <span title="Stock bas !">⚠️</span>}
+          {isLow && <span title="Stock bas !"><Icon name="alert" size={14} style={{color:'var(--red)'}}/></span>}
         </div>
         {section && <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>🗂 {section.name}</div>}
         {product.reference && <div style={{fontSize:12,color:'var(--text3)'}}>Réf: {product.reference}</div>}
@@ -589,7 +590,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
             {histLoading ? (
               <div style={{display:'flex',justifyContent:'center',padding:32}}><span className="spinner" style={{width:28,height:28}}/></div>
             ) : prodHistory.length === 0 ? (
-              <div className="empty" style={{padding:'20px 0'}}><div className="empty-icon" style={{fontSize:32}}>📋</div><p>Aucun mouvement enregistré</p></div>
+              <div className="empty" style={{padding:'20px 0'}}><div className="empty-icon"><Icon name="history" size={32} strokeWidth={1.5}/></div><p>Pas encore de mouvement pour ce produit.</p></div>
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'55vh',overflowY:'auto'}}>
                 {prodHistory.map(m => (
@@ -807,8 +808,9 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
   async function handleQuickAdd(quick) {
     setLoading(true)
     try {
+      const finalRef = await generateNextReference()
       const { error: insErr } = await supabase.from('products').insert({
-        name: quick.name, reference: '', quantity: 1, min_quantity: 0,
+        name: quick.name, reference: finalRef, quantity: 1, min_quantity: 0,
         unit: 'pcs', description: '', tags: [quick.tag],
         shelf_id: shelfId, section_id: sectionId || null,
       })
@@ -857,13 +859,13 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
         <div>
           <input className="input" placeholder="Rechercher dans le stock et le matériel..." value={stockSearch}
             onChange={e => setStockSearch(e.target.value)} style={{marginBottom:12}} autoFocus/>
-          <p style={{fontSize:12,color:'var(--text3)',marginTop:-8,marginBottom:12}}>Cherche dans les autres étagères et dans le catalogue Matériel (💡🔊)</p>
+          <p style={{fontSize:12,color:'var(--text3)',marginTop:-8,marginBottom:12}}>Cherche dans les autres étagères et dans le catalogue Matériel</p>
           {stockLoading ? (
             <div style={{display:'flex',justifyContent:'center',padding:24}}><span className="spinner"/></div>
           ) : stockResults.length === 0 ? (
             <div className="empty" style={{padding:'20px 0'}}>
-              <div className="empty-icon" style={{fontSize:32}}>📦</div>
-              <p>{stockSearch ? 'Aucun résultat' : 'Aucun produit dans les autres étagères'}</p>
+              <div className="empty-icon"><Icon name="package" size={32} strokeWidth={1.5}/></div>
+              <p>{stockSearch ? `Rien ne correspond à « ${stockSearch} ».` : "Rien d'autre en stock ailleurs pour l'instant."}</p>
             </div>
           ) : (
             <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflowY:'auto'}}>
@@ -1083,15 +1085,15 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
           <>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:16}}>
               <div>
-                <h3 style={{fontSize:20,fontWeight:700}}>{shelf.name}</h3>
+                <h3 className="item-name" style={{fontSize:22}}>{shelf.name}</h3>
                 {shelf.description && <p style={{color:'var(--text2)',fontSize:14,marginTop:4}}>{shelf.description}</p>}
                 {lowStockCount > 0 && (
-                  <div style={{display:'inline-flex',alignItems:'center',gap:5,marginTop:6,background:'rgba(220,38,38,0.1)',borderRadius:20,padding:'3px 10px',fontSize:12,color:'var(--red)',fontWeight:600}}>
-                    ⚠️ {lowStockCount} produit{lowStockCount>1?'s':''} en stock bas
+                  <div style={{display:'inline-flex',alignItems:'center',gap:5,marginTop:6,background:'rgba(192,67,46,0.1)',borderRadius:20,padding:'3px 10px',fontSize:12,color:'var(--red)',fontWeight:600}}>
+                    <Icon name="alert" size={13}/> {lowStockCount} produit{lowStockCount>1?'s':''} en stock bas
                   </div>
                 )}
               </div>
-              <button className="btn btn-ghost btn-icon" onClick={onClose} style={{fontSize:20}}>✕</button>
+              <button className="btn btn-ghost btn-icon" onClick={onClose}><Icon name="x" size={20}/></button>
             </div>
 
             {shelf.image_url && (
@@ -1110,13 +1112,13 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
             )}
 
             <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
-              <button className="btn btn-secondary btn-sm" onClick={handleShowQR}>📱 QR Code</button>
-              {isEditor && <button className="btn btn-secondary btn-sm" onClick={onEdit}>✏️ Modifier</button>}
-              {isEditor && <button className="btn btn-danger btn-sm" onClick={onDelete}>🗑️ Supprimer</button>}
+              <button className="btn btn-secondary btn-sm" onClick={handleShowQR}><Icon name="qr" size={15}/> QR Code</button>
+              {isEditor && <button className="btn btn-secondary btn-sm" onClick={onEdit}><Icon name="edit" size={15}/> Modifier</button>}
+              {isEditor && <button className="btn btn-danger btn-sm" onClick={onDelete}><Icon name="trash" size={15}/> Supprimer</button>}
             </div>
 
             <div className="section-header" style={{marginBottom:8}}>
-              <span className="section-title">🗂 Étages ({sections.length})</span>
+              <span className="section-title">Étages ({sections.length})</span>
               {isEditor && (
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowAddSection(s => !s)}>
                   {showAddSection ? 'Annuler' : '+ Étage'}
@@ -1272,7 +1274,7 @@ ${products.map(p => {
 // ── Room Modal ─────────────────────────────────────────────────
 function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
   const [name,    setName]    = useState(room?.name    || '')
-  const [color,   setColor]   = useState(room?.color   || '#7C3AED')
+  const [color,   setColor]   = useState(room?.color   || '#C2703D')
   const [gridX,   setGridX]   = useState(room?.grid_x  ?? 0)
   const [gridY,   setGridY]   = useState(room?.grid_y  ?? 0)
   const [gridW,   setGridW]   = useState(room?.grid_w  ?? 4)
@@ -1535,16 +1537,30 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
         const rawTagLists = rows.map(r => String(r.tags || r.categories || r.cat || '').trim().split(',').map(t => t.trim()).filter(Boolean))
         const allRawTags = rawTagLists.flat()
         const canonicalMap = allRawTags.length ? buildTagCanonicalMap(allRawTags) : new Map()
-        const products = rows.map((r, i) => ({
-          shelf_id: shelfId,
-          name: String(r.name || r.nom || 'Sans nom').slice(0, 255),
-          reference: String(r.reference || r.ref || '').slice(0, 100),
-          quantity: Math.max(0, parseInt(r.quantity || r.quantite || r.qte || '0') || 0),
-          unit: String(r.unit || r.unite || 'pcs').slice(0, 50),
-          description: String(r.description || r.notes || '').slice(0, 1000),
-          min_quantity: Math.max(0, parseInt(r.min_quantity || r.min || '0') || 0),
-          tags: rawTagLists[i].length ? rawTagLists[i].map(t => canonicalMap.get(tagKey(t)) || t) : null,
-        }))
+        // Rows without a reference in the CSV get auto-numbered too. Compute
+        // one shared starting number up front (rather than calling
+        // generateNextReference per row) so multiple blank rows in the same
+        // import don't all land on the same number.
+        const csvRefs = rows.map(r => String(r.reference || r.ref || '').trim())
+        let nextAutoNum = null
+        if (csvRefs.some(r => !r)) {
+          const firstAuto = await generateNextReference()
+          nextAutoNum = parseInt(firstAuto.replace(REF_PREFIX, ''), 10)
+        }
+        const products = rows.map((r, i) => {
+          let reference = csvRefs[i]
+          if (!reference) { reference = `${REF_PREFIX}${String(nextAutoNum).padStart(3, '0')}`; nextAutoNum++ }
+          return {
+            shelf_id: shelfId,
+            name: String(r.name || r.nom || 'Sans nom').slice(0, 255),
+            reference: reference.slice(0, 100),
+            quantity: Math.max(0, parseInt(r.quantity || r.quantite || r.qte || '0') || 0),
+            unit: String(r.unit || r.unite || 'pcs').slice(0, 50),
+            description: String(r.description || r.notes || '').slice(0, 1000),
+            min_quantity: Math.max(0, parseInt(r.min_quantity || r.min || '0') || 0),
+            tags: rawTagLists[i].length ? rawTagLists[i].map(t => canonicalMap.get(tagKey(t)) || t) : null,
+          }
+        })
         const { error } = await supabase.from('products').insert(products)
         if (error) throw error
         await logMovement('import', `${products.length} produits importés`, shelf?.name, shelfId, products.length)
@@ -1909,7 +1925,7 @@ export default function DepotPage() {
   function cellColor(shelf) {
     if (shelf.color) return shelf.color
     const z = zones.find(z => z.id === shelf.zone_id)
-    return z?.color || '#4F46E5'
+    return z?.color || '#C2703D'
   }
 
   const filtered = shelves.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
@@ -1931,7 +1947,7 @@ export default function DepotPage() {
       <div className="page-header">
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <h1>🏭 Dépôt</h1>
+<h1 style={{display:'flex',alignItems:'center',gap:8}}><Icon name="warehouse" size={20}/> Dépôt</h1>
             {totalLowStock > 0 && (
               <div style={{background:'var(--red)',color:'#fff',borderRadius:20,padding:'2px 10px',fontSize:12,fontWeight:700,cursor:'pointer'}}
                 onClick={() => setView('list')} title="Voir les stocks bas">
@@ -2142,9 +2158,16 @@ export default function DepotPage() {
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {filtered.length === 0 ? (
               <div className="empty">
-                <div className="empty-icon">🏭</div>
-                <p>{search ? 'Aucun résultat' : 'Aucune étagère'}</p>
-                {isEditor && !search && <button className="btn btn-primary" onClick={() => setShowAddShelf(true)}>Créer la première</button>}
+                <div className="empty-icon"><Icon name="warehouse" size={40} strokeWidth={1.5}/></div>
+                {search ? (
+                  <p>Rien ne correspond à « {search} ».</p>
+                ) : (
+                  <>
+                    <p style={{fontWeight:600,color:'var(--text)',fontFamily:'var(--font-display)',fontSize:17}}>Ton dépôt est vide, pour l'instant</p>
+                    <p style={{marginTop:2}}>Ajoute ta première étagère pour commencer à ranger ton matériel.</p>
+                  </>
+                )}
+                {isEditor && !search && <button className="btn btn-primary" onClick={() => setShowAddShelf(true)} style={{marginTop:6}}>Créer une étagère</button>}
               </div>
             ) : filtered.map(s => {
               const counts = productCounts[s.id] || { total: 0, lowStock: 0 }
@@ -2153,20 +2176,20 @@ export default function DepotPage() {
                   <div style={{width:10,height:44,borderRadius:4,background:cellColor(s),flexShrink:0}}/>
                   {s.image_url
                     ? <img src={s.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt={s.name}/>
-                    : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📦</div>
+                    : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:'var(--text3)'}}><Icon name="box" size={22} strokeWidth={1.5}/></div>
                   }
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                    <div className="item-name" style={{fontSize:15,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
                       {s.name}
-                      {counts.lowStock > 0 && <span style={{fontSize:11,background:'rgba(220,38,38,0.1)',color:'var(--red)',borderRadius:12,padding:'1px 7px',fontWeight:700}}>⚠️ {counts.lowStock} bas</span>}
+                      {counts.lowStock > 0 && <span style={{fontSize:11,background:'rgba(192,67,46,0.1)',color:'var(--red)',borderRadius:12,padding:'1px 7px',fontWeight:700,fontFamily:'Inter,system-ui,sans-serif'}}>{counts.lowStock} bas</span>}
                     </div>
                     {s.description && <div style={{color:'var(--text2)',fontSize:13,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.description}</div>}
                     <div style={{display:'flex',gap:10,marginTop:4,alignItems:'center'}}>
                       {s.zone_id && <span style={{fontSize:12,color:'var(--text3)'}}>{zones.find(z=>z.id===s.zone_id)?.name}</span>}
-                      {counts.total > 0 && <span style={{fontSize:12,color:'var(--text3)'}}>📦 {counts.total} produit{counts.total>1?'s':''}</span>}
+                      {counts.total > 0 && <span style={{fontSize:12,color:'var(--text3)',display:'flex',alignItems:'center',gap:4}}><Icon name="box" size={12}/> {counts.total} produit{counts.total>1?'s':''}</span>}
                     </div>
                   </div>
-                  <span style={{color:'var(--text3)',fontSize:20}}>›</span>
+                  <Icon name="external" size={16} style={{color:'var(--text3)'}}/>
                 </div>
               )
             })}

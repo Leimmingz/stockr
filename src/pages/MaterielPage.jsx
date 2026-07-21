@@ -4,6 +4,7 @@ import { compressAndUpload } from '../lib/imageUtils'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { useConfirm } from '../hooks/useConfirm'
+import { Icon } from '../components/Icon'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const AUDIO_TYPES  = ['Ampli','Enceinte','Caisson','Console / Mixeur','Processeur','Micro','Câble','Autre']
@@ -541,36 +542,36 @@ function CatalogueView({ lights, audios, filter, search, sortBy, isEditor, onEdi
           <div key={`${k}_${item.id}`} className="card" style={{display:'flex',gap:12,alignItems:'center'}}>
             {item.image_url
               ? <img src={item.image_url} onClick={() => openLightbox(item.image_url, item.name)} style={{width:56,height:56,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
-              : <div style={{width:56,height:56,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{k==='light'?'💡':'🔊'}</div>
+              : <div style={{width:56,height:56,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:'var(--text3)'}}><Icon name={k==='light'?'bulb':'speaker'} size={26} strokeWidth={1.5}/></div>
             }
             <div style={{flex:1,minWidth:0}}>
               <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2,flexWrap:'wrap'}}>
-                <span style={{fontWeight:700,fontSize:15}}>{item.name}</span>
-                <span style={{fontSize:10,padding:'2px 7px',borderRadius:20,background:'var(--bg3)',color:'var(--text3)',fontWeight:600,border:'1px solid var(--border)'}}>{k==='light'?'💡 Lumière':'🔊 Son'}</span>
+                <span className="item-name" style={{fontSize:16}}>{item.name}</span>
+                <span style={{fontSize:10,padding:'2px 7px',borderRadius:20,background:'var(--bg3)',color:'var(--text3)',fontWeight:600,border:'1px solid var(--border)'}}>{k==='light'?'Lumière':'Son'}</span>
               </div>
               {(item.brand||item.model) && <div style={{fontSize:13,color:'var(--text2)',marginBottom:4}}>{[item.brand,item.model].filter(Boolean).join(' · ')}</div>}
               <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                 {k === 'light' ? (
                   <>
-                    <span className="chip">⚡ {item.watts}W</span>
+                    <span className="chip">{item.watts}W</span>
                     {item.dmx_channels && <span className="chip">DMX {item.dmx_channels}ch</span>}
-                    {item.weight_kg && <span className="chip">⚖️ {item.weight_kg}kg</span>}
+                    {item.weight_kg && <span className="chip">{item.weight_kg}kg</span>}
                   </>
                 ) : (
                   <>
                     {item.type && <span className="chip">{item.type}</span>}
-                    {item.power_watts && <span className="chip">⚡ {item.power_watts}W</span>}
+                    {item.power_watts && <span className="chip">{item.power_watts}W</span>}
                     {item.impedance_ohms && <span className="chip">{item.impedance_ohms}Ω</span>}
                     {item.channels && <span className="chip">{item.channels}ch</span>}
-                    {item.weight_kg && <span className="chip">⚖️ {item.weight_kg}kg</span>}
+                    {item.weight_kg && <span className="chip">{item.weight_kg}kg</span>}
                   </>
                 )}
               </div>
             </div>
             {isEditor && (
               <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
-                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item, k)}>✏️</button>
-                <button className="btn btn-ghost btn-icon btn-sm" style={{color:'var(--red)'}} onClick={() => onDelete(item.id, k)}>🗑️</button>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item, k)}><Icon name="edit" size={15}/></button>
+                <button className="btn btn-ghost btn-icon btn-sm" style={{color:'var(--red)'}} onClick={() => onDelete(item.id, k)}><Icon name="trash" size={15}/></button>
               </div>
             )}
           </div>
@@ -671,19 +672,19 @@ export default function MaterielPage() {
     <div className="page">
       <div className="page-header">
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <h1>🎛️ Matériel</h1>
+          <h1 style={{display:'flex',alignItems:'center',gap:8}}><Icon name="sliders" size={20}/> Matériel</h1>
           {isEditor && tab === 'catalogue' && (
             <div style={{display:'flex',gap:6}}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowAdd('light')}>+ 💡</button>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowAdd('audio')}>+ 🔊</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowAdd('light')}><Icon name="plus" size={14}/> <Icon name="bulb" size={15}/></button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowAdd('audio')}><Icon name="plus" size={14}/> <Icon name="speaker" size={15}/></button>
             </div>
           )}
         </div>
 
         {/* Tabs */}
         <div style={{display:'flex',gap:6,marginTop:12,flexWrap:'wrap'}}>
-          {[['calc','🔢 Calculer'],['catalogue','📦 Catalogue'],['historique','📋 Historique']].map(([id,label]) => (
-            <button key={id} className={`btn btn-sm ${tab===id?'btn-primary':'btn-secondary'}`} onClick={() => setTab(id)}>{label}</button>
+          {[['calc','Calculer','calc'],['catalogue','Catalogue','package'],['historique','Historique','history']].map(([id,label,icon]) => (
+            <button key={id} className={`btn btn-sm ${tab===id?'btn-primary':'btn-secondary'}`} onClick={() => setTab(id)} style={{display:'flex',alignItems:'center',gap:6}}><Icon name={icon} size={14}/> {label}</button>
           ))}
         </div>
 
@@ -691,7 +692,7 @@ export default function MaterielPage() {
         {tab === 'catalogue' && (
           <>
             <div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
-              {[['all','Tout'],['light','💡 Lumière'],['audio','🔊 Son']].map(([v,l]) => (
+              {[['all','Tout'],['light','Lumière'],['audio','Son']].map(([v,l]) => (
                   <button key={v} className={`btn btn-sm ${filter===v?'btn-primary':'btn-secondary'}`} onClick={() => setFilter(v)}>{l}</button>
                 ))}
               </div>

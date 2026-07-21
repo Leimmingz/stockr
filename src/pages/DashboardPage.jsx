@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { Icon } from '../components/Icon'
 
 export default function DashboardPage() {
   const [stats,    setStats]    = useState(null)
@@ -38,7 +39,7 @@ export default function DashboardPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>📊 Stats</h1>
+        <h1 style={{display:'flex',alignItems:'center',gap:8}}><Icon name="chart" size={20}/> Stats</h1>
       </div>
       <div className="page-content">
         {loading ? (

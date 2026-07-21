@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { Icon } from '../components/Icon'
 
 // ── Photo lightbox (full-screen preview) ───────────────────────
 function Lightbox({ state, onClose }) {
@@ -86,8 +87,8 @@ export default function ShelfPublicPage({ shelfId }) {
 
   if (offline) return (
     <div style={{height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'var(--bg)',color:'var(--text2)',padding:24,textAlign:'center'}}>
-      <div style={{fontSize:56}}>📡</div>
-      <div style={{fontSize:18,fontWeight:700,color:'var(--text)'}}>Pas de connexion</div>
+      <div style={{color:'var(--text3)'}}><Icon name="wifiOff" size={48} strokeWidth={1.3}/></div>
+      <div className="item-name" style={{fontSize:18,color:'var(--text)'}}>Pas de connexion</div>
       <p style={{fontSize:14,maxWidth:280,margin:0}}>Cette fiche n'a pas encore été consultée sur cet appareil, elle ne peut pas s'afficher hors ligne.</p>
       <button className="btn btn-primary" onClick={() => window.location.reload()}>Réessayer</button>
     </div>
@@ -95,8 +96,8 @@ export default function ShelfPublicPage({ shelfId }) {
 
   if (notFound) return (
     <div style={{height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'var(--bg)',color:'var(--text2)'}}>
-      <div style={{fontSize:56}}>❓</div>
-      <div style={{fontSize:18,fontWeight:700,color:'var(--text)'}}>Étagère introuvable</div>
+      <div style={{color:'var(--text3)'}}><Icon name="search" size={48} strokeWidth={1.3}/></div>
+      <div className="item-name" style={{fontSize:18,color:'var(--text)'}}>Cette étagère est introuvable</div>
       <a href={base + '/'} className="btn btn-primary">Ouvrir Stockr</a>
     </div>
   )
@@ -122,13 +123,13 @@ export default function ShelfPublicPage({ shelfId }) {
             {shelf.description && <div style={{fontSize:13,color:'var(--text2)',marginTop:2}}>{shelf.description}</div>}
           </div>
           <svg viewBox="0 0 60 30" width="48" height="24" xmlns="http://www.w3.org/2000/svg">
-            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
+            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#A8501F"/><stop offset="100%" stopColor="#C2703D"/></linearGradient></defs>
             <rect x="1" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
             <rect x="21" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
             <rect x="1" y="1" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
             <rect x="1" y="14" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
             <rect x="1" y="26.5" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
-            <text x="27" y="22" fontSize="14" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
+            <text x="27" y="22" fontSize="14" fontWeight="600" fill="var(--text)" fontFamily="Fraunces, Georgia, serif">Stock<tspan fill="url(#lg)">r</tspan></text>
           </svg>
         </div>
         <div style={{maxWidth:600,margin:'6px auto 0',display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text3)'}}>
@@ -154,8 +155,8 @@ export default function ShelfPublicPage({ shelfId }) {
 
         {/* Low stock alert */}
         {lowStock.length > 0 && (
-          <div style={{marginBottom:20,padding:'12px 16px',background:'rgba(217,119,6,0.1)',border:'1px solid rgba(217,119,6,0.3)',borderRadius:'var(--radius)',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:20}}>⚠️</span>
+          <div style={{marginBottom:20,padding:'12px 16px',background:'rgba(192,138,46,0.1)',border:'1px solid rgba(192,138,46,0.3)',borderRadius:'var(--radius)',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{color:'var(--amber)'}}><Icon name="alert" size={20}/></span>
             <div>
               <div style={{fontWeight:600,fontSize:14,color:'var(--amber)'}}>Stock bas</div>
               <div style={{fontSize:13,color:'var(--text2)'}}>{lowStock.map(p => p.name).join(', ')}</div>
@@ -170,7 +171,7 @@ export default function ShelfPublicPage({ shelfId }) {
         )}
 
         {products.length === 0 ? (
-          <div className="empty"><div className="empty-icon">📦</div><p>Aucun produit dans cette étagère</p></div>
+          <div className="empty"><div className="empty-icon"><Icon name="box" size={40} strokeWidth={1.5}/></div><p>Cette étagère est vide pour l'instant.</p></div>
         ) : (
           <>
             {/* Sections */}
@@ -217,13 +218,13 @@ function ProductList({ products, onImageClick }) {
       {products.map(p => {
         const isLow = p.min_quantity > 0 && p.quantity <= p.min_quantity
         return (
-          <div key={p.id} className="card" style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',border: isLow ? '1px solid rgba(217,119,6,0.35)' : undefined}}>
+          <div key={p.id} className="card" style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',border: isLow ? '1px solid rgba(192,138,46,0.35)' : undefined}}>
             {p.image_url
               ? <img src={p.image_url} onClick={() => onImageClick({ src: p.image_url, alt: p.name })} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
-              : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📦</div>
+              : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:'var(--text3)'}}><Icon name="box" size={20} strokeWidth={1.5}/></div>
             }
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+              <div className="item-name" style={{fontSize:15,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
               {p.description && <div style={{fontSize:12,color:'var(--text2)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.description}</div>}
               {p.tags && (
                 <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
@@ -237,7 +238,7 @@ function ProductList({ products, onImageClick }) {
               <div style={{fontWeight:800,fontSize:18,color: isLow ? 'var(--amber)' : 'var(--text)'}}>
                 {p.quantity}{p.unit ? ` ${p.unit}` : ''}
               </div>
-              {isLow && <div style={{fontSize:11,color:'var(--amber)',fontWeight:600}}>⚠️ bas</div>}
+              {isLow && <div style={{fontSize:11,color:'var(--amber)',fontWeight:600}}>bas</div>}
             </div>
           </div>
         )

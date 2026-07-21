@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;600&display=swap');
 
 /* ── Variables ──────────────────────────────────────────────── */
 :root {
@@ -34,6 +34,12 @@
   --shadow:    0 2px 14px rgba(90,60,20,0.07);
   --shadow-md: 0 8px 32px rgba(90,60,20,0.14);
   --nav-w:     72px;
+
+  /* Typography — Fraunces (warm variable serif) carries product/shelf names
+     and page titles; Inter stays the workhorse for body copy and forms.
+     The pairing signals "well-kept workshop notebook" rather than "SaaS
+     dashboard", without sacrificing legibility for dense data. */
+  --font-display: 'Fraunces', Georgia, serif;
 }
 
 /* ── Dark theme (explicit) ──────────────────────────────────── */
@@ -132,6 +138,12 @@ textarea.input { resize: vertical; min-height: 80px; }
   letter-spacing: 0.3px; margin-bottom: 5px; display: block;
 }
 
+/* ── Item names (products, shelves, catalogue items) ─────────── */
+/* Fraunces at a moderate weight reads as a hand-labeled tag rather than a
+   database row — the one place in the whole app where the display font
+   shows up mid-list, applied narrowly so dense screens stay scannable. */
+.item-name { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.005em; }
+
 /* ── Cards ──────────────────────────────────────────────────── */
 .card {
   background: var(--bg2); border: 1px solid var(--border);
@@ -192,7 +204,7 @@ textarea.input { resize: vertical; min-height: 80px; }
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
   box-shadow: 0 -4px 32px rgba(0,0,0,0.12);
 }
-.modal-title { font-size: 17px; font-weight: 700; margin-bottom: 20px; color: var(--text); }
+.modal-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 20px; color: var(--text); letter-spacing: -0.01em; }
 @keyframes fadeIn  { from { opacity:0; }              to { opacity:1; } }
 @keyframes slideUp { from { transform:translateY(24px); opacity:0; } to { transform:translateY(0); opacity:1; } }
 
@@ -221,7 +233,7 @@ textarea.input { resize: vertical; min-height: 80px; }
   padding: 16px 18px 12px; border-bottom: 1px solid var(--border);
   background: var(--bg2); flex-shrink: 0; position: sticky; top: 0; z-index: 10;
 }
-.page-header h1 { font-size: 18px; font-weight: 700; color: var(--text); }
+.page-header h1 { font-family: var(--font-display); font-size: 21px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
 .page-content { flex: 1; overflow-y: auto; padding: 18px; -webkit-overflow-scrolling: touch; }
 
 /* ── Bottom nav (mobile) ─────────────────────────────────────── */
@@ -242,7 +254,7 @@ textarea.input { resize: vertical; min-height: 80px; }
 }
 .nav-item:active { background: var(--bg3); }
 .nav-item.active { color: var(--indigo2); background: rgba(194,112,61,0.10); }
-.nav-icon { font-size: 22px; line-height: 1; }
+.nav-icon { font-size: 22px; line-height: 1; display: flex; align-items: center; justify-content: center; }
 
 /* ── Section header ──────────────────────────────────────────── */
 .section-header  { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }

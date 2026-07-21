@@ -57,8 +57,8 @@ export default function AuthPage() {
         <svg viewBox="0 0 120 60" width="120" height="60" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#4F46E5"/>
-              <stop offset="100%" stopColor="#7C3AED"/>
+              <stop offset="0%" stopColor="#A8501F"/>
+              <stop offset="100%" stopColor="#C2703D"/>
             </linearGradient>
           </defs>
           <rect x="2" y="2" width="4" height="56" rx="2" fill="url(#lg)"/>
@@ -66,20 +66,20 @@ export default function AuthPage() {
           <rect x="2" y="2" width="44" height="5" rx="2.5" fill="url(#lg)"/>
           <rect x="2" y="29" width="44" height="5" rx="2.5" fill="url(#lg)"/>
           <rect x="2" y="55" width="44" height="5" rx="2.5" fill="url(#lg)"/>
-          <rect x="8" y="10" width="12" height="17" rx="2" fill="#818CF8" opacity="0.9"/>
-          <rect x="23" y="14" width="10" height="13" rx="2" fill="#A78BFA" opacity="0.8"/>
-          <rect x="35" y="11" width="8" height="16" rx="2" fill="#818CF8" opacity="0.7"/>
-          <rect x="8" y="37" width="14" height="16" rx="2" fill="#A78BFA" opacity="0.9"/>
-          <rect x="26" y="40" width="9" height="13" rx="2" fill="#818CF8" opacity="0.8"/>
-          <text x="52" y="42" fontSize="26" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
+          <rect x="8" y="10" width="12" height="17" rx="2" fill="#D99B6C" opacity="0.9"/>
+          <rect x="23" y="14" width="10" height="13" rx="2" fill="#C2703D" opacity="0.8"/>
+          <rect x="35" y="11" width="8" height="16" rx="2" fill="#D99B6C" opacity="0.7"/>
+          <rect x="8" y="37" width="14" height="16" rx="2" fill="#C2703D" opacity="0.9"/>
+          <rect x="26" y="40" width="9" height="13" rx="2" fill="#D99B6C" opacity="0.8"/>
+          <text x="52" y="42" fontSize="26" fontWeight="600" fill="var(--text)" fontFamily="Fraunces, Georgia, serif">Stock<tspan fill="url(#lg)">r</tspan></text>
         </svg>
-        <p style={{ color: 'var(--text2)', fontSize: 12, letterSpacing: 2, marginTop: 6, textTransform: 'uppercase' }}>Gestion de dépôt</p>
+        <p style={{ color: 'var(--text2)', fontSize: 13, marginTop: 8 }}>Ton dépôt, toujours à portée de main.</p>
       </div>
 
       {/* Card */}
       <div className="card" style={{ width: '100%', maxWidth: 380 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>
-          {mode === 'login' ? 'Connexion' : 'Créer un compte'}
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 21, fontWeight: 600, marginBottom: 24 }}>
+          {mode === 'login' ? 'Content de te revoir' : 'Créer un compte'}
         </h2>
 
         <form onSubmit={handleSubmit}>

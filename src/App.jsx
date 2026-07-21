@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAppUpdate } from './hooks/useAppUpdate'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
+import { Icon } from './components/Icon'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -32,10 +33,10 @@ function ShelfRedirect({ shelfId, onBack }) {
 
 // ── Navigation ────────────────────────────────────────────────
 const TABS = [
-  { id: 'depot',     icon: '🏭', label: 'Dépôt'    },
-  { id: 'materiel',  icon: '🎛️', label: 'Matériel' },
-  { id: 'stats',     icon: '📊', label: 'Stats'    },
-  { id: 'admin',     icon: '👤', label: 'Compte'   },
+  { id: 'depot',     icon: 'warehouse', label: 'Dépôt'    },
+  { id: 'materiel',  icon: 'sliders',   label: 'Matériel' },
+  { id: 'stats',     icon: 'chart',     label: 'Stats'    },
+  { id: 'admin',     icon: 'user',      label: 'Compte'   },
 ]
 
 function BottomNav({ active, onChange, themeIcon, onTheme }) {
@@ -43,12 +44,12 @@ function BottomNav({ active, onChange, themeIcon, onTheme }) {
     <nav className="bottom-nav">
       {TABS.map(t => (
         <button key={t.id} className={`nav-item ${active === t.id ? 'active' : ''}`} onClick={() => onChange(t.id)}>
-          <span className="nav-icon">{t.icon}</span>
+          <span className="nav-icon"><Icon name={t.icon} size={22}/></span>
           {t.label}
         </button>
       ))}
       <button className="nav-item" onClick={onTheme} title="Changer le thème (clair / sombre / système)">
-        <span className="nav-icon">{themeIcon}</span>
+        <span className="nav-icon" style={{fontSize:20}}>{themeIcon}</span>
         Thème
       </button>
     </nav>
@@ -98,17 +99,17 @@ function AppShell() {
     <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg2)' }}>
       <div style={{ textAlign: 'center' }}>
         <svg viewBox="0 0 80 40" width="80" height="40" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:16}}>
-          <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
+          <defs><linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#A8501F"/><stop offset="100%" stopColor="#C2703D"/></linearGradient></defs>
           <rect x="1" y="1" width="3" height="38" rx="1.5" fill="url(#lg2)"/>
           <rect x="28" y="1" width="3" height="38" rx="1.5" fill="url(#lg2)"/>
           <rect x="1" y="1" width="30" height="4" rx="2" fill="url(#lg2)"/>
           <rect x="1" y="19" width="30" height="4" rx="2" fill="url(#lg2)"/>
           <rect x="1" y="36" width="30" height="4" rx="2" fill="url(#lg2)"/>
-          <rect x="5" y="7" width="8" height="10" rx="1.5" fill="#818CF8" opacity="0.9"/>
-          <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#A78BFA" opacity="0.8"/>
-          <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#A78BFA" opacity="0.9"/>
-          <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#818CF8" opacity="0.8"/>
-          <text x="36" y="28" fontSize="18" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
+          <rect x="5" y="7" width="8" height="10" rx="1.5" fill="#D99B6C" opacity="0.9"/>
+          <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#C2703D" opacity="0.8"/>
+          <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#C2703D" opacity="0.9"/>
+          <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#D99B6C" opacity="0.8"/>
+          <text x="36" y="28" fontSize="18" fontWeight="600" fill="var(--text)" fontFamily="Fraunces, Georgia, serif">Stock<tspan fill="url(#lg2)">r</tspan></text>
         </svg>
         <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto' }}/>
       </div>
