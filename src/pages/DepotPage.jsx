@@ -596,6 +596,7 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
   const [qrData,         setQrData]         = useState(null)
   const [tagFilter,      setTagFilter]      = useState('')
   const toast = useToast()
+  const confirm = useConfirm()
 
   useEffect(() => { loadProducts(); loadSections() }, [shelf.id])
 
@@ -638,16 +639,16 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
   }
 
   async function deleteSection(id) {
-    if (!confirm('Supprimer cet étage ?')) return
+    if (!await confirm('Supprimer cet étage ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('shelf_sections').delete().eq('id', id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     loadSections()
   }
 
   // Collect all unique tags in this shelf
-  const allTags = [...new Set(products.flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+  const allTags = [...new Set(products.flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
   const filteredProducts = tagFilter
-    ? products.filter(p => p.tags && p.tags.toLowerCase().includes(tagFilter.toLowerCase()))
+    ? products.filter(p => { if (!p.tags) return false; const tagArr = Array.isArray(p.tags) ? p.tags : p.tags.split(','); return tagArr.some(t => t.trim().toLowerCase() === tagFilter.toLowerCase()) })
     : products
   const lowStockCount = products.filter(p => p.min_quantity > 0 && p.quantity <= p.min_quantity).length
 
@@ -809,7 +810,7 @@ ${products.length === 0 ? '<p class="no-products">Aucun produit</p>' :
 `<table><thead><tr><th>Produit</th><th>Réf.</th><th>Tags</th><th>Étage</th><th>Quantité</th><th>Min</th></tr></thead><tbody>
 ${products.map(p => {
   const isLow = p.min_quantity > 0 && p.quantity <= p.min_quantity
-  const tagHtml = p.tags ? p.tags.split(',').map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : '—'
+  const tagHtml = p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : '—'
   return `<tr><td${isLow?' class="low"':''}>${esc(p.name)}${isLow?' ⚠️':''}</td><td>${esc(p.reference)||'—'}</td>
 <td>${tagHtml}</td><td>${p.section_id && sectionMap[p.section_id] ? esc(sectionMap[p.section_id]) : '—'}</td>
 <td${isLow?' class="low"':''}>${esc(p.quantity)} ${esc(p.unit)}</td><td>${p.min_quantity||'—'}</td></tr>`}).join('')}
@@ -858,6 +859,7 @@ function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
   const [desc,    setDesc]    = useState(room?.description || '')
   const [loading, setLoading] = useState(false)
   const toast = useToast()
+  const confirm = useConfirm()
 
   async function handleSave() {
     if (!name.trim()) { toast('Nom requis', 'error'); return }
@@ -877,7 +879,7 @@ function RoomModal({ room, gridCols, gridRows, onClose, onSave }) {
   }
 
   async function handleDelete() {
-    if (!confirm('Supprimer cette pièce du plan ?')) return
+    if (!await confirm('Supprimer cette pièce du plan ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('depot_rooms').delete().eq('id', room.id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     onSave(); onClose(); toast('Pièce supprimée', 'success')
@@ -1240,13 +1242,13 @@ function GlobalSearchModal({ onShelfSelect, onClose }) {
     setLoading(true)
     let query = supabase.from('products').select('*, shelves(name, id)')
     const safeQ = q.replace(/[()%,]/g, ' ').trim()
-    if (safeQ.length >= 1) query = query.or(`name.ilike.%${safeQ}%,reference.ilike.%${safeQ}%,tags.ilike.%${safeQ}%,description.ilike.%${safeQ}%`)
-    if (tagFilter) query = query.ilike('tags', `%${tagFilter}%`)
+    if (safeQ.length >= 1) query = query.or(`name.ilike.%${safeQ}%,reference.ilike.%${safeQ}%,description.ilike.%${safeQ}%`)
+    if (tagFilter) query = query.contains('tags', [tagFilter])
     const { data } = await query.limit(40).order('name')
     setResults(data || [])
     // collect tags from first load
     if (!tagFilter && q.length < 1) {
-      const tags = [...new Set((data || []).flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+      const tags = [...new Set((data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
       setAllTags(tags)
     }
     setLoading(false)
@@ -1255,7 +1257,7 @@ function GlobalSearchModal({ onShelfSelect, onClose }) {
   // Load all tags on open
   useEffect(() => {
     supabase.from('products').select('tags').then(({ data }) => {
-      const tags = [...new Set((data || []).flatMap(p => p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []))]
+      const tags = [...new Set((data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
       setAllTags(tags)
     })
   }, [])
@@ -1286,7 +1288,7 @@ function GlobalSearchModal({ onShelfSelect, onClose }) {
           <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'55vh',overflowY:'auto'}}>
             {results.map(p => {
               const isLow = p.min_quantity > 0 && p.quantity <= p.min_quantity
-              const tags = p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : []
+              const tags = p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []
               return (
                 <div key={p.id}
                   style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 12px',

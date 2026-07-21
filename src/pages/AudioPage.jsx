@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { compressAndUpload } from '../lib/imageUtils'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
@@ -385,6 +386,7 @@ function AudioHistory() {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const toast = useToast()
+  const confirm = useConfirm()
 
   useEffect(() => {
     supabase.from('audio_setups').select('*').order('created_at', { ascending: false }).limit(30)
@@ -392,7 +394,7 @@ function AudioHistory() {
   }, [])
 
   async function handleDelete(id) {
-    if (!confirm('Supprimer ce setup ?')) return
+    if (!await confirm('Supprimer ce setup ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('audio_setups').delete().eq('id', id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     setHistory(h => h.filter(s => s.id !== id))
@@ -437,6 +439,7 @@ function AudioHistory() {
 export default function AudioPage() {
   const { isEditor } = useAuth()
   const toast = useToast()
+  const confirm = useConfirm()
   const [tab, setTab]         = useState('calc')
   const [equipment, setEquipment] = useState([])
   const [showAdd, setShowAdd] = useState(false)
@@ -454,7 +457,7 @@ export default function AudioPage() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Supprimer cet équipement ?')) return
+    if (!await confirm('Supprimer cet équipement ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('audio_equipment').delete().eq('id', id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     toast('Équipement supprimé', 'success')

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { compressAndUpload } from '../lib/imageUtils'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
@@ -314,13 +315,14 @@ function PowerCalculator({ projectors }) {
 function CalcHistory() {
   const [history, setHistory] = useState([])
   const toast = useToast()
+  const confirm = useConfirm()
 
   useEffect(() => {
     supabase.from('power_calculations').select('*').order('created_at', {ascending:false}).limit(20).then(({ data }) => setHistory(data||[]))
   }, [])
 
   async function handleDelete(id) {
-    if (!confirm('Supprimer ce calcul ?')) return
+    if (!await confirm('Supprimer ce calcul ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('power_calculations').delete().eq('id', id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     setHistory(h => h.filter(c => c.id !== id))
@@ -354,6 +356,7 @@ function CalcHistory() {
 export default function PowerPage() {
   const { isEditor } = useAuth()
   const toast = useToast()
+  const confirm = useConfirm()
   const [tab, setTab]           = useState('calc')
   const [projectors, setProjectors] = useState([])
   const [showAdd, setShowAdd]   = useState(false)
@@ -370,7 +373,7 @@ export default function PowerPage() {
   }
 
   async function handleDeleteProj(id) {
-    if (!confirm('Supprimer ce projecteur ?')) return
+    if (!await confirm('Supprimer ce projecteur ?', { confirmLabel: 'Supprimer' })) return
     const { error } = await supabase.from('projectors').delete().eq('id', id)
     if (error) { toast('Erreur : ' + error.message, 'error'); return }
     toast('Projecteur supprimé', 'success')
