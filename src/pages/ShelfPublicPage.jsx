@@ -45,20 +45,33 @@ export default function ShelfPublicPage({ shelfId }) {
   const [sections, setSections] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [offline,  setOffline]  = useState(false)
   const [lightbox, setLightbox] = useState(null) // { src, alt } | null
 
   useEffect(() => {
     async function load() {
-      const [{ data: s }, { data: p }, { data: sec }] = await Promise.all([
-        supabase.from('shelves').select('*').eq('id', shelfId).single(),
-        supabase.from('products').select('*').eq('shelf_id', shelfId).order('name'),
-        supabase.from('shelf_sections').select('*').eq('shelf_id', shelfId).order('position'),
-      ])
-      if (!s) { setNotFound(true); setLoading(false); return }
-      setShelf(s)
-      setProducts(p || [])
-      setSections(sec || [])
-      setLoading(false)
+      if (!navigator.onLine) {
+        // Fail fast with a clear message instead of hanging on a request
+        // that will only time out — this page is usually opened fresh from
+        // a QR code, so there's rarely anything useful cached for it yet.
+        setOffline(true); setLoading(false); return
+      }
+      try {
+        const [{ data: s }, { data: p }, { data: sec }] = await Promise.all([
+          supabase.from('shelves').select('*').eq('id', shelfId).single(),
+          supabase.from('products').select('*').eq('shelf_id', shelfId).order('name'),
+          supabase.from('shelf_sections').select('*').eq('shelf_id', shelfId).order('position'),
+        ])
+        if (!s) { setNotFound(true); setLoading(false); return }
+        setShelf(s)
+        setProducts(p || [])
+        setSections(sec || [])
+        setLoading(false)
+      } catch (err) {
+        // Network failure (not a "shelf doesn't exist" case) — most likely
+        // offline or a flaky connection right when the QR was scanned.
+        setOffline(true); setLoading(false)
+      }
     }
     load()
   }, [shelfId])
@@ -68,6 +81,15 @@ export default function ShelfPublicPage({ shelfId }) {
   if (loading) return (
     <div style={{height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)'}}>
       <span className="spinner" style={{width:36,height:36}}/>
+    </div>
+  )
+
+  if (offline) return (
+    <div style={{height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,background:'var(--bg)',color:'var(--text2)',padding:24,textAlign:'center'}}>
+      <div style={{fontSize:56}}>📡</div>
+      <div style={{fontSize:18,fontWeight:700,color:'var(--text)'}}>Pas de connexion</div>
+      <p style={{fontSize:14,maxWidth:280,margin:0}}>Cette fiche n'a pas encore été consultée sur cet appareil, elle ne peut pas s'afficher hors ligne.</p>
+      <button className="btn btn-primary" onClick={() => window.location.reload()}>Réessayer</button>
     </div>
   )
 
