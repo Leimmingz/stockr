@@ -133,6 +133,19 @@ function AppShell() {
 
 export default
 function App() {
+  // Restore the real path if we were bounced here by 404.html (GitHub Pages
+  // has no server-side routing, so a direct link like /shelf/<uuid> — e.g.
+  // from a QR code — lands on 404.html first, which redirects here with the
+  // intended path encoded in ?redirect=). Do this before any routing below.
+  {
+    const params = new URLSearchParams(window.location.search)
+    const redirect = params.get('redirect')
+    if (redirect) {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+      window.history.replaceState(null, '', base + redirect)
+    }
+  }
+
   // Detect /shelf/:id BEFORE auth — public read-only view
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
   const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
