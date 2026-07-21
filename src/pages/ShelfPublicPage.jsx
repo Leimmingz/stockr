@@ -99,17 +99,18 @@ export default function ShelfPublicPage({ shelfId }) {
             <div style={{fontWeight:800,fontSize:18,color:'var(--text)'}}>{shelf.name}</div>
             {shelf.description && <div style={{fontSize:13,color:'var(--text2)',marginTop:2}}>{shelf.description}</div>}
           </div>
-          <a href={base + '/'} style={{textDecoration:'none'}}>
-            <svg viewBox="0 0 60 30" width="48" height="24" xmlns="http://www.w3.org/2000/svg">
-              <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
-              <rect x="1" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
-              <rect x="21" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
-              <rect x="1" y="1" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
-              <rect x="1" y="14" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
-              <rect x="1" y="26.5" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
-              <text x="27" y="22" fontSize="14" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
-            </svg>
-          </a>
+          <svg viewBox="0 0 60 30" width="48" height="24" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
+            <rect x="1" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
+            <rect x="21" y="1" width="2.5" height="28" rx="1.2" fill="url(#lg)"/>
+            <rect x="1" y="1" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
+            <rect x="1" y="14" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
+            <rect x="1" y="26.5" width="23" height="3.5" rx="1.75" fill="url(#lg)"/>
+            <text x="27" y="22" fontSize="14" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lg)">r</tspan></text>
+          </svg>
+        </div>
+        <div style={{maxWidth:600,margin:'6px auto 0',display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text3)'}}>
+          <span>👁️ Vue en lecture seule — aucune connexion requise</span>
         </div>
       </div>
 
@@ -174,8 +175,13 @@ export default function ShelfPublicPage({ shelfId }) {
         )}
 
         {/* Footer */}
-        <div style={{marginTop:32,textAlign:'center',fontSize:13,color:'var(--text3)'}}>
-          Vue en lecture seule · <a href={base + '/'} style={{color:'var(--indigo2)',textDecoration:'none',fontWeight:600}}>Ouvrir dans Stockr</a>
+        <div style={{marginTop:32,display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+          <p style={{fontSize:12,color:'var(--text3)',textAlign:'center',margin:0}}>
+            Cette page est en lecture seule. Pour modifier le contenu de cette étagère,<br/>connecte-toi avec ton compte Stockr.
+          </p>
+          <a href={base + '/'} className="btn btn-secondary btn-sm" style={{textDecoration:'none'}}>
+            🔐 Se connecter à Stockr
+          </a>
         </div>
       </div>
       <Lightbox state={lightbox} onClose={() => setLightbox(null)}/>
