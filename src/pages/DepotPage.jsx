@@ -135,6 +135,26 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
+// ── Auto-generated reference numbers (SKR-001, SKR-002, ...) ───
+// Only used when the person leaves the reference field empty — manual
+// entry always takes priority and is never overwritten.
+const REF_PREFIX = 'SKR-'
+const REF_PATTERN = /^SKR-(\d+)$/i
+
+async function generateNextReference() {
+  // Pull every reference matching the SKR-### pattern and take the highest
+  // number rather than counting rows, so gaps from deleted products don't
+  // cause collisions and existing manually-numbered refs are respected.
+  const { data, error } = await supabase.from('products').select('reference').not('reference', 'is', null)
+  if (error) { console.warn('generateNextReference failed:', error.message); return `${REF_PREFIX}001` }
+  let max = 0
+  for (const row of data || []) {
+    const m = String(row.reference || '').trim().match(REF_PATTERN)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `${REF_PREFIX}${String(max + 1).padStart(3, '0')}`
+}
+
 async function logMovement(action, productName, shelfName, shelfId, quantityChange = null) {
   try {
     const { data: { user } } = await supabase.auth.getUser()
@@ -808,8 +828,10 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
       const rawTags = tags.trim() ? tags.trim().split(',').map(t=>t.trim()).filter(Boolean) : []
       const normalizedTags = rawTags.length ? await normalizeTagsViaDb(rawTags) : null
+      // Auto-number only kicks in when left blank — manual entry always wins
+      const finalRef = ref.trim() || await generateNextReference()
       const { error: insErr } = await supabase.from('products').insert({
-        name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
+        name: name.trim(), reference: finalRef, quantity: +qty, min_quantity: +minQty,
         unit, description: desc, tags: normalizedTags,
         shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
       })
@@ -889,7 +911,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       </div>
       <div className="form-row">
         <div className="form-group"><label className="label">Référence</label>
-          <input className="input" value={ref} onChange={e => setRef(e.target.value)} placeholder="REF-001" maxLength={100}/>
+          <input className="input" value={ref} onChange={e => setRef(e.target.value)} placeholder="Vide = numéro auto (SKR-001)" maxLength={100}/>
         </div>
         <div className="form-group"><label className="label">Étage / Section</label>
           <select className="input" value={sectionId} onChange={e => setSectionId(e.target.value)}>
@@ -1072,7 +1094,20 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
               <button className="btn btn-ghost btn-icon" onClick={onClose} style={{fontSize:20}}>✕</button>
             </div>
 
-            {shelf.image_url && <img src={shelf.image_url} onClick={() => openLightbox(shelf.image_url, shelf.name)} style={{width:'100%',borderRadius:10,marginBottom:16,maxHeight:200,objectFit:'cover',cursor:'zoom-in'}} alt={shelf.name}/>}
+            {shelf.image_url && (
+              <div style={{position:'relative',marginBottom:16}}>
+                <img src={shelf.image_url} style={{width:'100%',borderRadius:10,maxHeight:200,objectFit:'cover',display:'block'}} alt={shelf.name}/>
+                <button
+                  onClick={() => openLightbox(shelf.image_url, shelf.name)}
+                  title="Agrandir la photo"
+                  style={{
+                    position:'absolute', bottom:8, right:8, width:34, height:34, borderRadius:'50%',
+                    background:'rgba(0,0,0,0.55)', border:'none', color:'#fff', fontSize:15,
+                    cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+                  }}
+                >🔍</button>
+              </div>
+            )}
 
             <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
               <button className="btn btn-secondary btn-sm" onClick={handleShowQR}>📱 QR Code</button>
@@ -2018,7 +2053,7 @@ export default function DepotPage() {
                 })()}
 
                 <div ref={gridRef}
-                  style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content',touchAction: wiggleId ? 'none' : 'pan-x'}}
+                  style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content',touchAction: wiggleId ? 'none' : 'auto'}}
                   onPointerMove={e => {
                     if (!wiggleId) return
                     const pos = getCellCoords(e.clientX, e.clientY)
@@ -2045,7 +2080,7 @@ export default function DepotPage() {
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
                         ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity: wiggleId===cell?.id ? 0.85 : 1} : {}),
                         cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(cell&&isEditor?'grab':'pointer'),
-                        touchAction: wiggleId ? 'none' : 'pan-x',
+                        touchAction: wiggleId ? 'none' : 'auto',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
