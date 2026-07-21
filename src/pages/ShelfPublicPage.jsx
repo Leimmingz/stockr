@@ -1,6 +1,43 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+// ── Photo lightbox (full-screen preview) ───────────────────────
+function Lightbox({ state, onClose }) {
+  useEffect(() => {
+    if (!state) return
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state, onClose])
+
+  if (!state) return null
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position:'fixed', inset:0, zIndex:5000, background:'rgba(0,0,0,0.9)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+        cursor:'zoom-out',
+      }}
+    >
+      <button
+        onClick={onClose}
+        aria-label="Fermer"
+        style={{
+          position:'absolute', top:16, right:16, width:40, height:40, borderRadius:'50%',
+          background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', fontSize:20,
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}
+      >✕</button>
+      <img
+        src={state.src} alt={state.alt || ''}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:8, cursor:'default' }}
+      />
+    </div>
+  )
+}
+
 // ── Public shelf view — no auth required ─────────────────────
 export default function ShelfPublicPage({ shelfId }) {
   const [shelf,    setShelf]    = useState(null)
@@ -8,6 +45,7 @@ export default function ShelfPublicPage({ shelfId }) {
   const [sections, setSections] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [lightbox, setLightbox] = useState(null) // { src, alt } | null
 
   useEffect(() => {
     async function load() {
@@ -104,7 +142,8 @@ export default function ShelfPublicPage({ shelfId }) {
 
         {/* Shelf image */}
         {shelf.image_url && (
-          <img src={shelf.image_url} style={{width:'100%',maxHeight:200,objectFit:'cover',borderRadius:'var(--radius-lg)',marginBottom:20,border:'1px solid var(--border)'}} alt={shelf.name}/>
+          <img src={shelf.image_url} onClick={() => setLightbox({ src: shelf.image_url, alt: shelf.name })}
+            style={{width:'100%',maxHeight:200,objectFit:'cover',borderRadius:'var(--radius-lg)',marginBottom:20,border:'1px solid var(--border)',cursor:'zoom-in'}} alt={shelf.name}/>
         )}
 
         {products.length === 0 ? (
@@ -117,7 +156,7 @@ export default function ShelfPublicPage({ shelfId }) {
                 <div style={{fontWeight:700,fontSize:14,color:'var(--text2)',marginBottom:10,paddingBottom:6,borderBottom:'1px solid var(--border)',textTransform:'uppercase',letterSpacing:0.5}}>
                   {sec.name}
                 </div>
-                <ProductList products={sec.items}/>
+                <ProductList products={sec.items} onImageClick={setLightbox}/>
               </div>
             ))}
             {/* Unsectioned */}
@@ -128,7 +167,7 @@ export default function ShelfPublicPage({ shelfId }) {
                     Autres
                   </div>
                 )}
-                <ProductList products={unsectioned}/>
+                <ProductList products={unsectioned} onImageClick={setLightbox}/>
               </div>
             )}
           </>
@@ -139,11 +178,12 @@ export default function ShelfPublicPage({ shelfId }) {
           Vue en lecture seule · <a href={base + '/'} style={{color:'var(--indigo2)',textDecoration:'none',fontWeight:600}}>Ouvrir dans Stockr</a>
         </div>
       </div>
+      <Lightbox state={lightbox} onClose={() => setLightbox(null)}/>
     </div>
   )
 }
 
-function ProductList({ products }) {
+function ProductList({ products, onImageClick }) {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:8}}>
       {products.map(p => {
@@ -151,7 +191,7 @@ function ProductList({ products }) {
         return (
           <div key={p.id} className="card" style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',border: isLow ? '1px solid rgba(217,119,6,0.35)' : undefined}}>
             {p.image_url
-              ? <img src={p.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+              ? <img src={p.image_url} onClick={() => onImageClick({ src: p.image_url, alt: p.name })} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
               : <div style={{width:48,height:48,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>📦</div>
             }
             <div style={{flex:1,minWidth:0}}>

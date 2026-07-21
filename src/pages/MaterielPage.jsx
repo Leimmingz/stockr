@@ -8,6 +8,89 @@ import { useConfirm } from '../hooks/useConfirm'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const AUDIO_TYPES  = ['Ampli','Enceinte','Caisson','Console / Mixeur','Processeur','Micro','Câble','Autre']
 
+// ── Photo lightbox (full-screen preview) ───────────────────────
+// Shares the same window.__stockrOpenLightbox helper as DepotPage.jsx, so any
+// <img onClick={() => openLightbox(url, alt)}> becomes zoomable.
+function openLightbox(src, alt) {
+  window.__stockrOpenLightbox?.(src, alt)
+}
+
+function Lightbox() {
+  const [state, setState] = useState(null) // { src, alt } | null
+
+  useEffect(() => {
+    window.__stockrOpenLightbox = (src, alt) => setState({ src, alt })
+    return () => { delete window.__stockrOpenLightbox }
+  }, [])
+
+  useEffect(() => {
+    if (!state) return
+    function onKey(e) { if (e.key === 'Escape') setState(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state])
+
+  if (!state) return null
+  return (
+    <div
+      onClick={() => setState(null)}
+      style={{
+        position:'fixed', inset:0, zIndex:5000, background:'rgba(0,0,0,0.9)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+        cursor:'zoom-out',
+      }}
+    >
+      <button
+        onClick={() => setState(null)}
+        aria-label="Fermer"
+        style={{
+          position:'absolute', top:16, right:16, width:40, height:40, borderRadius:'50%',
+          background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', fontSize:20,
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}
+      >✕</button>
+      <img
+        src={state.src} alt={state.alt || ''}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:8, cursor:'default' }}
+      />
+    </div>
+  )
+}
+
+// ── Shelf picker (shared) ─────────────────────────────────────
+function useShelves() {
+  const [shelves, setShelves] = useState([])
+  useEffect(() => {
+    supabase.from('shelves').select('id, name').order('name').then(({ data }) => setShelves(data || []))
+  }, [])
+  return shelves
+}
+
+function ShelfPickerField({ shelves, value, onChange }) {
+  return (
+    <div className="form-group">
+      <label className="label">Ajouter directement dans une étagère (optionnel)</label>
+      <select className="input" value={value} onChange={e => onChange(e.target.value)}>
+        <option value="">Ne pas ajouter à une étagère</option>
+        {shelves.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+    </div>
+  )
+}
+
+// Creates a linked product row on the chosen shelf for a newly-created catalogue item
+async function addCatalogueItemToShelf(shelfId, item, kind) {
+  if (!shelfId) return
+  const payload = {
+    name: item.name, reference: item.model || null, quantity: 1, min_quantity: 0,
+    unit: 'pcs', description: [item.brand, kind === 'light' ? (item.watts && `${item.watts}W`) : item.type].filter(Boolean).join(' · '),
+    tags: [kind === 'light' ? 'lumière' : 'son'], image_url: item.image_url || null,
+    shelf_id: shelfId, section_id: null,
+  }
+  await supabase.from('products').insert(payload)
+}
+
 // ── Extract specs via Claude proxy ───────────────────────────
 async function extractSpecs(file, kind) {
   if (file.size > 10 * 1024 * 1024) throw new Error('Fichier trop volumineux (max 10 Mo)')
@@ -48,6 +131,8 @@ function LightModal({ item, onClose, onSave }) {
   const [imgPrev, setImgPrev] = useState(item?.image_url || null)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading]   = useState(false)
+  const [shelfId, setShelfId]   = useState('')
+  const shelves = useShelves()
   const toast = useToast()
 
   function set(k, v) { setForm(f => ({...f, [k]: v})) }
@@ -84,6 +169,7 @@ function LightModal({ item, onClose, onSave }) {
       } else {
         const { error } = await supabase.from('projectors').insert(payload)
         if (error) throw error
+        if (shelfId) await addCatalogueItemToShelf(shelfId, payload, 'light')
       }
       toast(item?.id ? 'Projecteur mis à jour' : 'Projecteur ajouté', 'success')
       onSave(); onClose()
@@ -122,11 +208,18 @@ function LightModal({ item, onClose, onSave }) {
         </div>
         <div className="form-group">
           <label className="label">Photo</label>
-          <label className="upload-zone">
-            <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
-            {imgPrev ? <img src={imgPrev} className="upload-preview" alt=""/> : <><div style={{fontSize:28}}>💡</div><div style={{fontSize:13,marginTop:6}}>Photo du projecteur</div></>}
-          </label>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <label className="upload-zone" style={{flex:1,minWidth:120}}>
+              <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
+              {imgPrev ? <img src={imgPrev} className="upload-preview" alt=""/> : <><div style={{fontSize:28}}>📸</div><div style={{fontSize:13,marginTop:6}}>Prendre une photo</div></>}
+            </label>
+            <label className="upload-zone" style={{flex:1,minWidth:120}}>
+              <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
+              <div style={{fontSize:28}}>🖼️</div><div style={{fontSize:13,marginTop:6}}>Depuis la galerie</div>
+            </label>
+          </div>
         </div>
+        {!item?.id && <ShelfPickerField shelves={shelves} value={shelfId} onChange={setShelfId}/>}
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={loading}>{loading?<span className="spinner" style={{borderTopColor:'#fff'}}/>:'Enregistrer'}</button>
@@ -143,6 +236,8 @@ function AudioModal({ item, onClose, onSave }) {
   const [imgPrev, setImgPrev] = useState(item?.image_url || null)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading]   = useState(false)
+  const [shelfId, setShelfId]   = useState('')
+  const shelves = useShelves()
   const toast = useToast()
 
   function set(k, v) { setForm(f => ({...f, [k]: v})) }
@@ -179,6 +274,7 @@ function AudioModal({ item, onClose, onSave }) {
       } else {
         const { error } = await supabase.from('audio_equipment').insert(payload)
         if (error) throw error
+        if (shelfId) await addCatalogueItemToShelf(shelfId, payload, 'audio')
       }
       toast(item?.id ? 'Équipement mis à jour' : 'Équipement ajouté', 'success')
       onSave(); onClose()
@@ -222,11 +318,18 @@ function AudioModal({ item, onClose, onSave }) {
         </div>
         <div className="form-group">
           <label className="label">Photo</label>
-          <label className="upload-zone">
-            <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
-            {imgPrev ? <img src={imgPrev} className="upload-preview" alt=""/> : <><div style={{fontSize:28}}>🔊</div><div style={{fontSize:13,marginTop:6}}>Photo de l'équipement</div></>}
-          </label>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <label className="upload-zone" style={{flex:1,minWidth:120}}>
+              <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
+              {imgPrev ? <img src={imgPrev} className="upload-preview" alt=""/> : <><div style={{fontSize:28}}>📸</div><div style={{fontSize:13,marginTop:6}}>Prendre une photo</div></>}
+            </label>
+            <label className="upload-zone" style={{flex:1,minWidth:120}}>
+              <input type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setImgFile(f);setImgPrev(URL.createObjectURL(f))}}}/>
+              <div style={{fontSize:28}}>🖼️</div><div style={{fontSize:13,marginTop:6}}>Depuis la galerie</div>
+            </label>
+          </div>
         </div>
+        {!item?.id && <ShelfPickerField shelves={shelves} value={shelfId} onChange={setShelfId}/>}
         <div className="form-actions">
           <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={loading}>{loading?<span className="spinner" style={{borderTopColor:'#fff'}}/>:'Enregistrer'}</button>
@@ -358,7 +461,7 @@ function UnifiedCalc({ lights, audios }) {
                 {lights.map(p => (
                   <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                     {p.image_url
-                      ? <img src={p.image_url} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+                      ? <img src={p.image_url} onClick={() => openLightbox(p.image_url, p.name)} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                       : <div style={{width:40,height:40,borderRadius:8,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>💡</div>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
@@ -377,7 +480,7 @@ function UnifiedCalc({ lights, audios }) {
                 {audios.map(a => (
                   <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                     {a.image_url
-                      ? <img src={a.image_url} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+                      ? <img src={a.image_url} onClick={() => openLightbox(a.image_url, a.name)} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                       : <div style={{width:40,height:40,borderRadius:8,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🔊</div>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</div>
@@ -437,7 +540,7 @@ function CatalogueView({ lights, audios, filter, search, sortBy, isEditor, onEdi
         return (
           <div key={`${k}_${item.id}`} className="card" style={{display:'flex',gap:12,alignItems:'center'}}>
             {item.image_url
-              ? <img src={item.image_url} style={{width:56,height:56,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+              ? <img src={item.image_url} onClick={() => openLightbox(item.image_url, item.name)} style={{width:56,height:56,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
               : <div style={{width:56,height:56,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{k==='light'?'💡':'🔊'}</div>
             }
             <div style={{flex:1,minWidth:0}}>
@@ -637,6 +740,7 @@ export default function MaterielPage() {
           onSave={loadAll}
         />
       )}
+      <Lightbox/>
     </div>
   )
 }

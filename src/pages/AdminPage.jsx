@@ -14,8 +14,17 @@ export default function AdminPage() {
   const [tab, setTab] = useState(isAdmin ? 'users' : 'profile')
   const [pwForm, setPwForm]     = useState({ current: '', next: '', confirm: '' })
   const [pwLoading, setPwLoading] = useState(false)
+  const [appInfo, setAppInfo] = useState(null)
 
   useEffect(() => { if (isAdmin) loadUsers() }, [isAdmin])
+
+  useEffect(() => {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+    fetch(`${base}/version.json`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(setAppInfo)
+      .catch(() => setAppInfo({ version: '1.0.0' }))
+  }, [])
 
   async function loadUsers() {
     setLoading(true)
@@ -89,6 +98,7 @@ export default function AdminPage() {
           )}
           <button className={`btn btn-sm ${tab==='profile'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('profile')}>Profil</button>
           <button className={`btn btn-sm ${tab==='security'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('security')}>🔒 Securite</button>
+          <button className={`btn btn-sm ${tab==='about'?'btn-primary':'btn-secondary'}`} onClick={() => setTab('about')}>ℹ️ À propos</button>
         </div>
       </div>
 
@@ -167,6 +177,58 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {tab === 'about' && (
+          <div>
+            <div className="card" style={{marginBottom:16,textAlign:'center',padding:'28px 20px'}}>
+              <svg viewBox="0 0 80 40" width="80" height="40" xmlns="http://www.w3.org/2000/svg" style={{marginBottom:14}}>
+                <defs><linearGradient id="lgAbout" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4F46E5"/><stop offset="100%" stopColor="#7C3AED"/></linearGradient></defs>
+                <rect x="1" y="1" width="3" height="38" rx="1.5" fill="url(#lgAbout)"/>
+                <rect x="28" y="1" width="3" height="38" rx="1.5" fill="url(#lgAbout)"/>
+                <rect x="1" y="1" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
+                <rect x="1" y="19" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
+                <rect x="1" y="36" width="30" height="4" rx="2" fill="url(#lgAbout)"/>
+                <rect x="5" y="7" width="8" height="10" rx="1.5" fill="#818CF8" opacity="0.9"/>
+                <rect x="16" y="9" width="7" height="8" rx="1.5" fill="#A78BFA" opacity="0.8"/>
+                <rect x="5" y="25" width="10" height="9" rx="1.5" fill="#A78BFA" opacity="0.9"/>
+                <rect x="18" y="27" width="6" height="7" rx="1.5" fill="#818CF8" opacity="0.8"/>
+                <text x="36" y="28" fontSize="18" fontWeight="800" fill="var(--text)" fontFamily="Inter,system-ui,sans-serif">Stock<tspan fill="url(#lgAbout)">r</tspan></text>
+              </svg>
+              <div style={{fontSize:14,color:'var(--text2)',marginBottom:4}}>Gestion de dépôt & matériel événementiel</div>
+              <div style={{display:'inline-block',fontSize:13,fontWeight:700,color:'var(--indigo2)',background:'rgba(79,70,229,0.1)',border:'1px solid rgba(79,70,229,0.25)',borderRadius:20,padding:'4px 14px',marginTop:8}}>
+                Version {appInfo?.version || '…'}
+              </div>
+              {appInfo?.notes && <div style={{fontSize:12,color:'var(--text3)',marginTop:10}}>{appInfo.notes}</div>}
+            </div>
+
+            <div className="card" style={{marginBottom:16}}>
+              <div style={{fontWeight:700,marginBottom:10}}>📲 Installer l'application</div>
+              <div style={{fontSize:13,color:'var(--text2)',marginBottom:14}}>
+                Récupère la dernière version installable (APK Android) depuis les releases GitHub, ou ouvre directement l'app dans le navigateur.
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                <a href="https://github.com/Leimmingz/stockr/releases" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{textDecoration:'none',textAlign:'center'}}>
+                  ⬇️ Voir les releases (APK)
+                </a>
+                <a href="https://leimmingz.github.io/stockr/" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{textDecoration:'none',textAlign:'center'}}>
+                  🌐 Ouvrir l'app dans le navigateur
+                </a>
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{fontWeight:700,marginBottom:10}}>✨ Fonctionnalités</div>
+              <div style={{display:'flex',flexDirection:'column',gap:10,fontSize:13,color:'var(--text2)'}}>
+                <div>🏭 Dépôt visuel en grille : étagères, sections, QR codes imprimables</div>
+                <div>🎛️ Catalogue matériel : projecteurs, audio, lecture automatique de fiches techniques (IA)</div>
+                <div>🔢 Calcul de puissance électrique et vérification de circuits</div>
+                <div>👥 Gestion des rôles : Admin, Éditeur, Lecteur</div>
+                <div>🔄 Synchronisation en temps réel entre tous les appareils</div>
+                <div>📱 Installable comme application (PWA / APK Android)</div>
+              </div>
+            </div>
           </div>
         )}
 

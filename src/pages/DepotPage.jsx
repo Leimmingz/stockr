@@ -8,6 +8,59 @@ import { compressAndUpload } from '../lib/imageUtils'
 
 const PRESET_COLORS = ['#4F46E5','#7C3AED','#DB2777','#DC2626','#EA580C','#D97706','#65A30D','#16A34A','#0891B2','#0284C7','#6B7280','#374151']
 
+// ── Photo lightbox (full-screen preview) ───────────────────────
+// Any <img> in this file can become zoomable by adding:
+//   onClick={() => openLightbox(url, alt)} style={{cursor:'zoom-in'}}
+// A single <Lightbox/> mounted once at the root of DepotPage renders the
+// overlay; opening it from anywhere just calls the shared window helper so
+// deeply-nested components (ProductCard, modals, etc.) don't need prop drilling.
+function openLightbox(src, alt) {
+  window.__stockrOpenLightbox?.(src, alt)
+}
+
+function Lightbox() {
+  const [state, setState] = useState(null) // { src, alt } | null
+
+  useEffect(() => {
+    window.__stockrOpenLightbox = (src, alt) => setState({ src, alt })
+    return () => { delete window.__stockrOpenLightbox }
+  }, [])
+
+  useEffect(() => {
+    if (!state) return
+    function onKey(e) { if (e.key === 'Escape') setState(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state])
+
+  if (!state) return null
+  return (
+    <div
+      onClick={() => setState(null)}
+      style={{
+        position:'fixed', inset:0, zIndex:5000, background:'rgba(0,0,0,0.9)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+        cursor:'zoom-out',
+      }}
+    >
+      <button
+        onClick={() => setState(null)}
+        aria-label="Fermer"
+        style={{
+          position:'absolute', top:16, right:16, width:40, height:40, borderRadius:'50%',
+          background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', fontSize:20,
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}
+      >✕</button>
+      <img
+        src={state.src} alt={state.alt || ''}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:8, cursor:'default' }}
+      />
+    </div>
+  )
+}
+
 function getGridSettings() {
   try {
     return {
@@ -38,6 +91,66 @@ async function logMovement(action, productName, shelfName, shelfId, quantityChan
 // Escape HTML to prevent XSS in print windows
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+// ── Tag normalization ───────────────────────────────────────────
+// Builds a "canonical key" for a tag: lowercase, accents stripped, common
+// French plural/e-suffix endings folded together, so "Sécurité", "securite",
+// "sécurités" all collapse to the same bucket.
+function tagKey(tag) {
+  let t = String(tag || '').trim().toLowerCase()
+  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+  t = t.replace(/[^a-z0-9]/g, '')                        // drop spaces/punctuation
+  if (t.endsWith('es') && t.length > 3) t = t.slice(0, -2)
+  else if (t.endsWith('s') && t.length > 2) t = t.slice(0, -1)
+  return t
+}
+
+// Given a list of raw tag strings (with repeats), returns a map from
+// canonical key -> the most frequently used original spelling (ties broken
+// by first-seen order), so the whole app can display one consistent label
+// per group of near-duplicate tags.
+function buildTagCanonicalMap(rawTags) {
+  const counts = new Map() // key -> Map(label -> count)
+  for (const raw of rawTags) {
+    const label = String(raw || '').trim()
+    if (!label) continue
+    const key = tagKey(label)
+    if (!key) continue
+    if (!counts.has(key)) counts.set(key, new Map())
+    const labelCounts = counts.get(key)
+    labelCounts.set(label, (labelCounts.get(label) || 0) + 1)
+  }
+  const canonical = new Map()
+  for (const [key, labelCounts] of counts) {
+    let best = null, bestCount = -1
+    for (const [label, count] of labelCounts) {
+      if (count > bestCount) { best = label; bestCount = count }
+    }
+    canonical.set(key, best)
+  }
+  return canonical
+}
+
+// Normalizes a fresh comma-separated tag input against existing known tags:
+// if a typed tag matches an existing tag's canonical key, reuse the existing
+// spelling instead of creating a near-duplicate category.
+function normalizeTagsAgainst(newTags, existingTags) {
+  const canonical = buildTagCanonicalMap(existingTags)
+  return newTags.map(t => {
+    const key = tagKey(t)
+    return canonical.get(key) || t.trim()
+  })
+}
+
+// Fetches every tag currently in use across all products, then normalizes a
+// freshly-typed list of tags against them (reusing the most common existing
+// spelling for any near-duplicate, e.g. "Sécurité" vs "sécurité" vs "securités").
+async function normalizeTagsViaDb(newTags) {
+  if (!newTags.length) return newTags
+  const { data } = await supabase.from('products').select('tags')
+  const existing = (data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')) : [])
+  return normalizeTagsAgainst(newTags, [...existing, ...newTags])
 }
 
 function ColorPicker({ value, onChange }) {
@@ -218,6 +331,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
   const section = sections.find(s => s.id === product.section_id)
   const [localQty, setLocalQty] = useState(product.quantity)
   const [qtyLoading, setQtyLoading] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
   const pendingDelta = useRef(0)
   const flushTimer   = useRef(null)
   const tags = product.tags ? (Array.isArray(product.tags) ? product.tags : product.tags.split(',')).map(t => t.trim()).filter(Boolean) : []
@@ -298,7 +412,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
     <div style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 14px',
       background: isLow ? 'rgba(220,38,38,0.06)' : 'var(--bg3)',
       borderRadius:'var(--radius)',border: isLow ? '1px solid rgba(220,38,38,0.3)' : '1px solid var(--border)'}}>
-      {product.image_url && <img src={product.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2}} alt={product.name}/>}
+      {product.image_url && <img src={product.image_url} onClick={() => openLightbox(product.image_url, product.name)} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2,cursor:'zoom-in'}} alt={product.name}/>}
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           {product.name}
@@ -333,9 +447,25 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
       </div>
       {isEditor && (
         <div style={{display:'flex',flexDirection:'column',gap:4,flexShrink:0}}>
+          <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowEdit(true)} style={{fontSize:14}} title="Modifier">✏️</button>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={handleDelete} style={{color:'var(--red)',fontSize:16}} title="Supprimer">🗑️</button>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={openMove}    style={{fontSize:14}} title="Déplacer vers une autre étagère">↕️</button>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={openHistory} style={{fontSize:14}} title="Historique de ce produit">📋</button>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {showEdit && (
+        <div className="modal-overlay" style={{zIndex:2100}} onClick={e => e.target===e.currentTarget && setShowEdit(false)}>
+          <div className="modal">
+            <EditProductForm
+              product={product}
+              sections={sections}
+              shelfName={shelfName}
+              onSave={() => { setShowEdit(false); onRefresh() }}
+              onCancel={() => setShowEdit(false)}
+            />
+          </div>
         </div>
       )}
 
@@ -403,6 +533,110 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
   )
 }
 
+// ── Edit Product Form ──────────────────────────────────────────
+function EditProductForm({ product, sections, shelfName, onSave, onCancel }) {
+  const [name,      setName]      = useState(product.name || '')
+  const [ref,       setRef]       = useState(product.reference || '')
+  const [qty,       setQty]       = useState(product.quantity ?? 0)
+  const [minQty,    setMinQty]    = useState(product.min_quantity ?? 0)
+  const [unit,      setUnit]      = useState(product.unit || 'pcs')
+  const [desc,      setDesc]      = useState(product.description || '')
+  const [tags,      setTags]      = useState(Array.isArray(product.tags) ? product.tags.join(', ') : (product.tags || ''))
+  const [sectionId, setSectionId] = useState(product.section_id || '')
+  const [imgFile,   setImgFile]   = useState(null)
+  const [imgPrev,   setImgPrev]   = useState(product.image_url || null)
+  const [loading,   setLoading]   = useState(false)
+  const toast = useToast()
+
+  async function handleSave() {
+    if (!name.trim()) { toast('Nom requis', 'error'); return }
+    setLoading(true)
+    try {
+      let imageUrl = product.image_url || null
+      if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}_${Date.now()}`)
+      const rawTags = tags.trim() ? tags.trim().split(',').map(t=>t.trim()).filter(Boolean) : []
+      const normalizedTags = rawTags.length ? await normalizeTagsViaDb(rawTags) : null
+      const { error } = await supabase.from('products').update({
+        name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
+        unit, description: desc, tags: normalizedTags,
+        section_id: sectionId || null, image_url: imageUrl,
+      }).eq('id', product.id)
+      if (error) throw error
+      await logMovement('edit', name.trim(), shelfName, product.shelf_id)
+      toast('Produit modifié', 'success')
+      onSave()
+    } catch(err) { toast(err.message, 'error') }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <>
+      <h3 className="modal-title">✏️ Modifier — {product.name}</h3>
+      <div className="form-group"><label className="label">Nom</label>
+        <input className="input" value={name} onChange={e => setName(e.target.value)} maxLength={255}/>
+      </div>
+      <div className="form-row">
+        <div className="form-group"><label className="label">Référence</label>
+          <input className="input" value={ref} onChange={e => setRef(e.target.value)} placeholder="REF-001" maxLength={100}/>
+        </div>
+        <div className="form-group"><label className="label">Étage / Section</label>
+          <select className="input" value={sectionId} onChange={e => setSectionId(e.target.value)}>
+            <option value="">Aucun</option>
+            {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="form-group"><label className="label">Quantité</label>
+          <input className="input" type="number" min={0} max={99999} value={qty} onChange={e => setQty(e.target.value)}/>
+        </div>
+        <div className="form-group"><label className="label">Unité</label>
+          <select className="input" value={unit} onChange={e => setUnit(e.target.value)}>
+            {['pcs','boîte','kg','m','lot','câble','rouleau'].map(u => <option key={u}>{u}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="form-group">
+        <label className="label">Quantité minimum (alerte stock bas)</label>
+        <input className="input" type="number" min={0} value={minQty} onChange={e => setMinQty(e.target.value)} placeholder="0 = pas d'alerte"/>
+      </div>
+      <div className="form-group">
+        <label className="label">Tags / Catégories</label>
+        <input className="input" value={tags} onChange={e => setTags(e.target.value)}
+          placeholder="lumière, câble, sono  (séparés par des virgules)" maxLength={500}/>
+      </div>
+      <div className="form-group"><label className="label">Description</label>
+        <textarea className="input" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Notes..."/>
+      </div>
+      <div className="form-group">
+        <label className="label">Photo</label>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <label className="upload-zone" style={{flex:1,minWidth:120}}>
+            <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e => {
+              const f = e.target.files[0]
+              if (f) { setImgFile(f); setImgPrev(prev => { if(prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(f) }) }
+            }}/>
+            {imgPrev ? <img src={imgPrev} className="upload-preview" alt="preview"/> : <><div style={{fontSize:28}}>📸</div><div style={{fontSize:13,marginTop:6}}>Prendre une photo</div></>}
+          </label>
+          <label className="upload-zone" style={{flex:1,minWidth:120}}>
+            <input type="file" accept="image/*" style={{display:'none'}} onChange={e => {
+              const f = e.target.files[0]
+              if (f) { setImgFile(f); setImgPrev(prev => { if(prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(f) }) }
+            }}/>
+            <div style={{fontSize:28}}>🖼️</div><div style={{fontSize:13,marginTop:6}}>Depuis la galerie</div>
+          </label>
+        </div>
+      </div>
+      <div className="form-actions">
+        <button className="btn btn-secondary" onClick={onCancel}>Annuler</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={loading}>
+          {loading ? <span className="spinner" style={{borderTopColor:'#fff'}}/> : 'Enregistrer'}
+        </button>
+      </div>
+    </>
+  )
+}
+
 // ── Add Product Form ───────────────────────────────────────────
 function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
   const [mode,        setMode]        = useState('new') // 'new' | 'existing'
@@ -429,13 +663,34 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
     clearTimeout(stockTimer.current)
     stockTimer.current = setTimeout(async () => {
       setStockLoading(true)
+      const s = stockSearch.trim()
+
       let q = supabase.from('products').select('*, shelves(name)')
         .neq('shelf_id', shelfId).order('name').limit(40)
-      const s = stockSearch.trim()
       if (s) q = q.or(`name.ilike.%${s}%,reference.ilike.%${s}%`)
-      const { data, error } = await q
-      if (error) console.error('stock search error', error)
-      setStockResults(data || [])
+
+      let ql = supabase.from('projectors').select('*').order('name').limit(40)
+      if (s) ql = ql.or(`name.ilike.%${s}%,model.ilike.%${s}%,brand.ilike.%${s}%`)
+
+      let qa = supabase.from('audio_equipment').select('*').order('name').limit(40)
+      if (s) qa = qa.or(`name.ilike.%${s}%,model.ilike.%${s}%,brand.ilike.%${s}%`)
+
+      const [{ data: prods, error: pe }, { data: lights, error: le }, { data: audios, error: ae }] = await Promise.all([q, ql, qa])
+      if (pe) console.error('stock search error', pe)
+      if (le) console.error('projectors search error', le)
+      if (ae) console.error('audio search error', ae)
+
+      const fromShelves = (prods || []).map(p => ({ ...p, _source: 'shelf' }))
+      const fromLights  = (lights || []).map(p => ({
+        ...p, _source: 'catalogue', reference: p.model, quantity: 1, min_quantity: 0,
+        unit: 'pcs', description: [p.brand, p.watts && `${p.watts}W`].filter(Boolean).join(' · '), tags: ['lumière'],
+      }))
+      const fromAudios = (audios || []).map(p => ({
+        ...p, _source: 'catalogue', reference: p.model, quantity: 1, min_quantity: 0,
+        unit: 'pcs', description: [p.brand, p.type].filter(Boolean).join(' · '), tags: ['son'],
+      }))
+
+      setStockResults([...fromShelves, ...fromLights, ...fromAudios])
       setStockLoading(false)
     }, 250)
     return () => clearTimeout(stockTimer.current)
@@ -459,15 +714,33 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
     finally { setLoading(false) }
   }
 
+  async function handleQuickAdd(quick) {
+    setLoading(true)
+    try {
+      const { error: insErr } = await supabase.from('products').insert({
+        name: quick.name, reference: '', quantity: 1, min_quantity: 0,
+        unit: 'pcs', description: '', tags: [quick.tag],
+        shelf_id: shelfId, section_id: sectionId || null,
+      })
+      if (insErr) throw insErr
+      await logMovement('add', quick.name, shelfName, shelfId, 1)
+      toast(`${quick.name} ajouté`, 'success')
+      onSave()
+    } catch(err) { toast(err.message, 'error') }
+    finally { setLoading(false) }
+  }
+
   async function handleSave() {
     if (!name.trim()) { toast('Nom requis', 'error'); return }
     setLoading(true)
     try {
       let imageUrl = null
       if (imgFile) imageUrl = await compressAndUpload(imgFile, 'depot-images', `product_${name.replace(/\s/g,'_')}`)
+      const rawTags = tags.trim() ? tags.trim().split(',').map(t=>t.trim()).filter(Boolean) : []
+      const normalizedTags = rawTags.length ? await normalizeTagsViaDb(rawTags) : null
       const { error: insErr } = await supabase.from('products').insert({
         name: name.trim(), reference: ref, quantity: +qty, min_quantity: +minQty,
-        unit, description: desc, tags: tags.trim() ? tags.trim().split(',').map(t=>t.trim()).filter(Boolean) : null,
+        unit, description: desc, tags: normalizedTags,
         shelf_id: shelfId, section_id: sectionId || null, image_url: imageUrl,
       })
       if (insErr) throw insErr
@@ -490,8 +763,9 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
 
       {mode === 'existing' ? (
         <div>
-          <input className="input" placeholder="Rechercher dans tout le stock..." value={stockSearch}
+          <input className="input" placeholder="Rechercher dans le stock et le matériel..." value={stockSearch}
             onChange={e => setStockSearch(e.target.value)} style={{marginBottom:12}} autoFocus/>
+          <p style={{fontSize:12,color:'var(--text3)',marginTop:-8,marginBottom:12}}>Cherche dans les autres étagères et dans le catalogue Matériel (💡🔊)</p>
           {stockLoading ? (
             <div style={{display:'flex',justifyContent:'center',padding:24}}><span className="spinner"/></div>
           ) : stockResults.length === 0 ? (
@@ -504,13 +778,15 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
               {stockResults.map(p => (
                 <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                   {p.image_url
-                    ? <img src={p.image_url} style={{width:40,height:40,borderRadius:6,objectFit:'cover',flexShrink:0}} alt=""/>
+                    ? <img src={p.image_url} onClick={() => openLightbox(p.image_url, p.name)} style={{width:40,height:40,borderRadius:6,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                     : <div style={{width:40,height:40,borderRadius:6,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>📦</div>
                   }
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
                     <div style={{fontSize:12,color:'var(--text3)'}}>
-                      {p.shelves?.name && <span>📍 {p.shelves.name} · </span>}
+                      {p._source === 'catalogue'
+                        ? <span>🎛️ Matériel · </span>
+                        : p.shelves?.name && <span>📍 {p.shelves.name} · </span>}
                       Qté: {p.quantity} {p.unit}
                       {p.reference && <span> · {p.reference}</span>}
                     </div>
@@ -526,6 +802,18 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
         </div>
       ) : (
       <>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
+        {[
+          {name:'Câble XLR', tag:'câble'},
+          {name:'Câble DMX', tag:'câble'},
+          {name:'Adaptateur secteur', tag:'électrique'},
+        ].map(q => (
+          <button key={q.name} type="button" className="btn btn-secondary btn-sm" disabled={loading}
+            onClick={() => handleQuickAdd(q)}>
+            ⚡ {q.name}
+          </button>
+        ))}
+      </div>
       <div className="form-group"><label className="label">Nom</label>
         <input className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Machine à fumée" maxLength={255}/>
       </div>
@@ -565,13 +853,22 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
       </div>
       <div className="form-group">
         <label className="label">Photo</label>
-        <label className="upload-zone">
-          <input type="file" accept="image/*" style={{display:'none'}} onChange={e => {
-            const f = e.target.files[0]
-            if (f) { setImgFile(f); setImgPrev(prev => { if(prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(f) }) }
-          }}/>
-          {imgPrev ? <img src={imgPrev} className="upload-preview" alt="preview"/> : <><div style={{fontSize:28}}>📷</div><div style={{fontSize:13,marginTop:6}}>Ajouter une photo</div></>}
-        </label>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <label className="upload-zone" style={{flex:1,minWidth:120}}>
+            <input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e => {
+              const f = e.target.files[0]
+              if (f) { setImgFile(f); setImgPrev(prev => { if(prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(f) }) }
+            }}/>
+            {imgPrev ? <img src={imgPrev} className="upload-preview" alt="preview"/> : <><div style={{fontSize:28}}>📸</div><div style={{fontSize:13,marginTop:6}}>Prendre une photo</div></>}
+          </label>
+          <label className="upload-zone" style={{flex:1,minWidth:120}}>
+            <input type="file" accept="image/*" style={{display:'none'}} onChange={e => {
+              const f = e.target.files[0]
+              if (f) { setImgFile(f); setImgPrev(prev => { if(prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(f) }) }
+            }}/>
+            <div style={{fontSize:28}}>🖼️</div><div style={{fontSize:13,marginTop:6}}>Depuis la galerie</div>
+          </label>
+        </div>
       </div>
       <div className="form-actions">
         <button className="btn btn-secondary" onClick={onCancel}>Annuler</button>
@@ -646,9 +943,9 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
   }
 
   // Collect all unique tags in this shelf
-  const allTags = [...new Set(products.flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
+  const allTags = [...new Set(buildTagCanonicalMap(products.flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : [])).values())].sort((a,b) => a.localeCompare(b))
   const filteredProducts = tagFilter
-    ? products.filter(p => { if (!p.tags) return false; const tagArr = Array.isArray(p.tags) ? p.tags : p.tags.split(','); return tagArr.some(t => t.trim().toLowerCase() === tagFilter.toLowerCase()) })
+    ? products.filter(p => { if (!p.tags) return false; const tagArr = Array.isArray(p.tags) ? p.tags : p.tags.split(','); return tagArr.some(t => tagKey(t) === tagKey(tagFilter)) })
     : products
   const lowStockCount = products.filter(p => p.min_quantity > 0 && p.quantity <= p.min_quantity).length
 
@@ -686,7 +983,7 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
               <button className="btn btn-ghost btn-icon" onClick={onClose} style={{fontSize:20}}>✕</button>
             </div>
 
-            {shelf.image_url && <img src={shelf.image_url} style={{width:'100%',borderRadius:10,marginBottom:16,maxHeight:200,objectFit:'cover'}} alt={shelf.name}/>}
+            {shelf.image_url && <img src={shelf.image_url} onClick={() => openLightbox(shelf.image_url, shelf.name)} style={{width:'100%',borderRadius:10,marginBottom:16,maxHeight:200,objectFit:'cover',cursor:'zoom-in'}} alt={shelf.name}/>}
 
             <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
               <button className="btn btn-secondary btn-sm" onClick={handleShowQR}>📱 QR Code</button>
@@ -1102,7 +1399,10 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
       {
         const rows = parsedRows
         const shelf = shelves.find(s => s.id === shelfId)
-        const products = rows.map(r => ({
+        const rawTagLists = rows.map(r => String(r.tags || r.categories || r.cat || '').trim().split(',').map(t => t.trim()).filter(Boolean))
+        const allRawTags = rawTagLists.flat()
+        const canonicalMap = allRawTags.length ? buildTagCanonicalMap(allRawTags) : new Map()
+        const products = rows.map((r, i) => ({
           shelf_id: shelfId,
           name: String(r.name || r.nom || 'Sans nom').slice(0, 255),
           reference: String(r.reference || r.ref || '').slice(0, 100),
@@ -1110,7 +1410,7 @@ function ImportCSVModal({ shelves, onClose, onDone }) {
           unit: String(r.unit || r.unite || 'pcs').slice(0, 50),
           description: String(r.description || r.notes || '').slice(0, 1000),
           min_quantity: Math.max(0, parseInt(r.min_quantity || r.min || '0') || 0),
-          tags: String(r.tags || r.categories || r.cat || '').trim() ? String(r.tags || r.categories || r.cat || '').trim().split(',').map(t => t.trim()).filter(Boolean) : null,
+          tags: rawTagLists[i].length ? rawTagLists[i].map(t => canonicalMap.get(tagKey(t)) || t) : null,
         }))
         const { error } = await supabase.from('products').insert(products)
         if (error) throw error
@@ -1243,22 +1543,32 @@ function GlobalSearchModal({ onShelfSelect, onClose }) {
     let query = supabase.from('products').select('*, shelves(name, id)')
     const safeQ = q.replace(/[()%,]/g, ' ').trim()
     if (safeQ.length >= 1) query = query.or(`name.ilike.%${safeQ}%,reference.ilike.%${safeQ}%,description.ilike.%${safeQ}%`)
-    if (tagFilter) query = query.contains('tags', [tagFilter])
-    const { data } = await query.limit(40).order('name')
-    setResults(data || [])
+    const { data } = await query.limit(200).order('name')
+    let rows = data || []
+    if (tagFilter) {
+      const wantedKey = tagKey(tagFilter)
+      rows = rows.filter(p => {
+        const pTags = p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []
+        return pTags.some(t => tagKey(t) === wantedKey)
+      })
+    }
+    setResults(rows.slice(0, 40))
     // collect tags from first load
     if (!tagFilter && q.length < 1) {
-      const tags = [...new Set((data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
-      setAllTags(tags)
+      const raw = rows.flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : [])
+      const canonical = buildTagCanonicalMap(raw)
+      setAllTags([...new Set(canonical.values())].sort((a,b) => a.localeCompare(b)))
     }
     setLoading(false)
   }
 
-  // Load all tags on open
+  // Load all tags on open — deduplicated via canonical key so near-duplicate
+  // categories (accents/case/plural) show as a single filter chip.
   useEffect(() => {
     supabase.from('products').select('tags').then(({ data }) => {
-      const tags = [...new Set((data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : []))]
-      setAllTags(tags)
+      const raw = (data || []).flatMap(p => p.tags ? (Array.isArray(p.tags) ? p.tags : p.tags.split(',')).map(t => t.trim()).filter(Boolean) : [])
+      const canonical = buildTagCanonicalMap(raw)
+      setAllTags([...new Set(canonical.values())].sort((a,b) => a.localeCompare(b)))
     })
   }, [])
 
@@ -1355,8 +1665,6 @@ export default function DepotPage() {
   const [showImportCSV,    setShowImportCSV]    = useState(false)
   const [showHistory,      setShowHistory]      = useState(false)
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
-  const [dragMode,         setDragMode]         = useState(false)
-  const [dragShelfId,      setDragShelfId]      = useState(null)
   const [wiggleId,         setWiggleId]         = useState(null)
   const [dropTarget,       setDropTarget]       = useState(null)
   const longPressRef  = useRef(null)
@@ -1426,10 +1734,10 @@ export default function DepotPage() {
   }
 
   async function handleDrop(x, y) {
-    if (!dragShelfId) return
-    const { error } = await supabase.from('shelves').update({ grid_x: x, grid_y: y }).eq('id', dragShelfId)
+    if (!wiggleId) return
+    const { error } = await supabase.from('shelves').update({ grid_x: x, grid_y: y }).eq('id', wiggleId)
     if (error) { toast('Erreur déplacement : ' + error.message, 'error') }
-    setDragShelfId(null); loadAll()
+    setWiggleId(null); loadAll()
   }
 
   function getCellCoords(clientX, clientY) {
@@ -1529,8 +1837,7 @@ export default function DepotPage() {
                       { label:'📋 Historique',         action:() => { setShowHistory(true); setShowMore(false) } },
                       { label:'⚙️ Réglages grille',   action:() => { setShowGridSettings(true); setShowMore(false) } },
                       ...(isEditor ? [
-                        { label:`↕️ Mode déplacement ${dragMode?'(actif)':''}`, action:() => { setDragMode(m => !m); setRoomDrawMode(false); setShowMore(false) }, active: dragMode },
-{ label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
+                        { label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
                       ] : []),
                     ].map((item, i) => (
                       <button key={i} onClick={item.action} style={{
@@ -1553,7 +1860,7 @@ export default function DepotPage() {
             {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddShelf(true)}>+ Étagère</button>}
           </div>
         </div>
-        {dragMode && <p style={{fontSize:12,color:'var(--indigo)',marginTop:6,fontWeight:500}}>↕️ Glisse une étagère vers une case vide · clique ↕️ pour quitter</p>}
+        {isEditor && <p style={{fontSize:12,color:'var(--text3)',marginTop:6}}>↕️ Reste appuyé sur une étagère pour la déplacer</p>}
         <input className="input" style={{marginTop:12}} placeholder="🔍 Rechercher une étagère... · Ctrl+K pour chercher les produits" value={search} onChange={e => setSearch(e.target.value.slice(0, 200))}/>
       </div>
 
@@ -1631,23 +1938,17 @@ export default function DepotPage() {
                   const w = Math.max(1, cell?.grid_w || 1)
                   const h = Math.max(1, cell?.grid_h || 1)
                   const bg = cell ? cellColor(cell) : undefined
-                  const isDragging = dragShelfId === cell?.id
                   const counts = cell ? (productCounts[cell.id] || { total: 0, lowStock: 0 }) : null
                   return (
                     <div key={`${x}-${y}`} className={`grid-cell ${cell ? 'occupied' : 'empty-cell'} ${wiggleId && wiggleId===cell?.id ? 'wiggling' : ''} ${dropTarget && dropTarget.x===x && dropTarget.y===y && !cell && wiggleId ? 'drag-target' : ''}`}
                       style={{
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
-                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:(isDragging||wiggleId===cell?.id)?0.85:1} : {}),
-                        cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
+                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity: wiggleId===cell?.id ? 0.85 : 1} : {}),
+                        cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(cell&&isEditor?'grab':'pointer'),
                         touchAction: cell && isEditor ? 'none' : 'auto',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
-                      draggable={dragMode && !!cell}
-                      onDragStart={cell ? () => setDragShelfId(cell.id) : undefined}
-                      onDragEnd={() => setDragShelfId(null)}
-                      onDragOver={e => { if (dragMode) e.preventDefault() }}
-                      onDrop={() => { if (dragMode && !cell) handleDrop(x, y) }}
                       onPointerDown={e => {
                         if (!cell || !isEditor) return
                         e.preventDefault()
@@ -1656,18 +1957,15 @@ export default function DepotPage() {
                           setWiggleId(cell.id)
                           navigator.vibrate?.(40)
                           try { gridRef.current?.setPointerCapture(pointerIdRef.current) } catch {}
-                        }, 480)
+                        }, 420)
                       }}
                       onPointerUp={e => {
                         clearTimeout(longPressRef.current)
                         if (wiggleId) return // handled by grid container
-                        if (!dragMode) {
-                          if (cell) setSelectedShelf(cell)
-                          else if (isEditor) setShowAddShelf(true)
-                        }
+                        if (cell) setSelectedShelf(cell)
+                        else if (isEditor) setShowAddShelf(true)
                       }}
                       onPointerCancel={() => { clearTimeout(longPressRef.current); setWiggleId(null); setDropTarget(null) }}
-                      onClick={() => { if (dragMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >
                       {cell ? (
@@ -1693,7 +1991,7 @@ export default function DepotPage() {
               </div>
             </div>
             <p style={{color:'var(--text3)',fontSize:12,marginTop:10,textAlign:'center'}}>
-              {dragMode?'↕️ Glisse les étagères pour les repositionner':'Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits'}
+              Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits
             </p>
           </>
         ) : (
@@ -1754,7 +2052,7 @@ export default function DepotPage() {
       )}
 
       {showExport    && <ExportModal   shelves={filtered} onClose={() => setShowExport(false)}/>}
-      {showScanner   && <ScannerModal  onClose={() => setShowScanner(false)} onFound={id => { setShowScanner(false); const s=shelves.find(x=>x.id===id); if(s) setSelectedShelf(s); else alert('Étagère non trouvée') }}/>}
+      {showScanner   && <QRScannerModal shelves={shelves} onClose={() => setShowScanner(false)} onFound={shelf => { setShowScanner(false); setSelectedShelf(shelf) }}/>}
       {showImportCSV && <ImportCSVModal shelves={shelves} onClose={() => setShowImportCSV(false)} onDone={loadAll}/>}
       {showHistory   && <HistoryModal    onClose={() => setShowHistory(false)}/>}
       {showGlobalSearch && <GlobalSearchModal onClose={() => setShowGlobalSearch(false)} onSelect={shelf => { setShowGlobalSearch(false); setSelectedShelf(shelf) }}/>}
@@ -1780,6 +2078,7 @@ export default function DepotPage() {
           onRefresh={loadAll}
         />
       )}
+      <Lightbox/>
     </div>
   )
 }
