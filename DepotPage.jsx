@@ -8,6 +8,59 @@ import { compressAndUpload } from '../lib/imageUtils'
 
 const PRESET_COLORS = ['#4F46E5','#7C3AED','#DB2777','#DC2626','#EA580C','#D97706','#65A30D','#16A34A','#0891B2','#0284C7','#6B7280','#374151']
 
+// ── Photo lightbox (full-screen preview) ───────────────────────
+// Any <img> in this file can become zoomable by adding:
+//   onClick={() => openLightbox(url, alt)} style={{cursor:'zoom-in'}}
+// A single <Lightbox/> mounted once at the root of DepotPage renders the
+// overlay; opening it from anywhere just calls the shared window helper so
+// deeply-nested components (ProductCard, modals, etc.) don't need prop drilling.
+function openLightbox(src, alt) {
+  window.__stockrOpenLightbox?.(src, alt)
+}
+
+function Lightbox() {
+  const [state, setState] = useState(null) // { src, alt } | null
+
+  useEffect(() => {
+    window.__stockrOpenLightbox = (src, alt) => setState({ src, alt })
+    return () => { delete window.__stockrOpenLightbox }
+  }, [])
+
+  useEffect(() => {
+    if (!state) return
+    function onKey(e) { if (e.key === 'Escape') setState(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state])
+
+  if (!state) return null
+  return (
+    <div
+      onClick={() => setState(null)}
+      style={{
+        position:'fixed', inset:0, zIndex:5000, background:'rgba(0,0,0,0.9)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+        cursor:'zoom-out',
+      }}
+    >
+      <button
+        onClick={() => setState(null)}
+        aria-label="Fermer"
+        style={{
+          position:'absolute', top:16, right:16, width:40, height:40, borderRadius:'50%',
+          background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', fontSize:20,
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}
+      >✕</button>
+      <img
+        src={state.src} alt={state.alt || ''}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:8, cursor:'default' }}
+      />
+    </div>
+  )
+}
+
 function getGridSettings() {
   try {
     return {
@@ -359,7 +412,7 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
     <div style={{display:'flex',gap:12,alignItems:'flex-start',padding:'10px 14px',
       background: isLow ? 'rgba(220,38,38,0.06)' : 'var(--bg3)',
       borderRadius:'var(--radius)',border: isLow ? '1px solid rgba(220,38,38,0.3)' : '1px solid var(--border)'}}>
-      {product.image_url && <img src={product.image_url} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2}} alt={product.name}/>}
+      {product.image_url && <img src={product.image_url} onClick={() => openLightbox(product.image_url, product.name)} style={{width:48,height:48,borderRadius:8,objectFit:'cover',flexShrink:0,marginTop:2,cursor:'zoom-in'}} alt={product.name}/>}
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontWeight:600,fontSize:14,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
           {product.name}
@@ -725,7 +778,7 @@ function AddProductForm({ shelfId, shelfName, sections, onSave, onCancel }) {
               {stockResults.map(p => (
                 <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                   {p.image_url
-                    ? <img src={p.image_url} style={{width:40,height:40,borderRadius:6,objectFit:'cover',flexShrink:0}} alt=""/>
+                    ? <img src={p.image_url} onClick={() => openLightbox(p.image_url, p.name)} style={{width:40,height:40,borderRadius:6,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                     : <div style={{width:40,height:40,borderRadius:6,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>📦</div>
                   }
                   <div style={{flex:1,minWidth:0}}>
@@ -930,7 +983,7 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
               <button className="btn btn-ghost btn-icon" onClick={onClose} style={{fontSize:20}}>✕</button>
             </div>
 
-            {shelf.image_url && <img src={shelf.image_url} style={{width:'100%',borderRadius:10,marginBottom:16,maxHeight:200,objectFit:'cover'}} alt={shelf.name}/>}
+            {shelf.image_url && <img src={shelf.image_url} onClick={() => openLightbox(shelf.image_url, shelf.name)} style={{width:'100%',borderRadius:10,marginBottom:16,maxHeight:200,objectFit:'cover',cursor:'zoom-in'}} alt={shelf.name}/>}
 
             <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
               <button className="btn btn-secondary btn-sm" onClick={handleShowQR}>📱 QR Code</button>
@@ -1612,8 +1665,6 @@ export default function DepotPage() {
   const [showImportCSV,    setShowImportCSV]    = useState(false)
   const [showHistory,      setShowHistory]      = useState(false)
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
-  const [dragMode,         setDragMode]         = useState(false)
-  const [dragShelfId,      setDragShelfId]      = useState(null)
   const [wiggleId,         setWiggleId]         = useState(null)
   const [dropTarget,       setDropTarget]       = useState(null)
   const longPressRef  = useRef(null)
@@ -1683,10 +1734,10 @@ export default function DepotPage() {
   }
 
   async function handleDrop(x, y) {
-    if (!dragShelfId) return
-    const { error } = await supabase.from('shelves').update({ grid_x: x, grid_y: y }).eq('id', dragShelfId)
+    if (!wiggleId) return
+    const { error } = await supabase.from('shelves').update({ grid_x: x, grid_y: y }).eq('id', wiggleId)
     if (error) { toast('Erreur déplacement : ' + error.message, 'error') }
-    setDragShelfId(null); loadAll()
+    setWiggleId(null); loadAll()
   }
 
   function getCellCoords(clientX, clientY) {
@@ -1786,8 +1837,7 @@ export default function DepotPage() {
                       { label:'📋 Historique',         action:() => { setShowHistory(true); setShowMore(false) } },
                       { label:'⚙️ Réglages grille',   action:() => { setShowGridSettings(true); setShowMore(false) } },
                       ...(isEditor ? [
-                        { label:`↕️ Mode déplacement ${dragMode?'(actif)':''}`, action:() => { setDragMode(m => !m); setRoomDrawMode(false); setShowMore(false) }, active: dragMode },
-{ label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
+                        { label:'🏠 Ajouter une pièce', action:() => { setEditRoom(null); setShowRoomModal(true); setShowMore(false) } },
                       ] : []),
                     ].map((item, i) => (
                       <button key={i} onClick={item.action} style={{
@@ -1810,7 +1860,7 @@ export default function DepotPage() {
             {isEditor && <button className="btn btn-primary btn-sm" onClick={() => setShowAddShelf(true)}>+ Étagère</button>}
           </div>
         </div>
-        {dragMode && <p style={{fontSize:12,color:'var(--indigo)',marginTop:6,fontWeight:500}}>↕️ Glisse une étagère vers une case vide · clique ↕️ pour quitter</p>}
+        {isEditor && <p style={{fontSize:12,color:'var(--text3)',marginTop:6}}>↕️ Reste appuyé sur une étagère pour la déplacer</p>}
         <input className="input" style={{marginTop:12}} placeholder="🔍 Rechercher une étagère... · Ctrl+K pour chercher les produits" value={search} onChange={e => setSearch(e.target.value.slice(0, 200))}/>
       </div>
 
@@ -1888,23 +1938,17 @@ export default function DepotPage() {
                   const w = Math.max(1, cell?.grid_w || 1)
                   const h = Math.max(1, cell?.grid_h || 1)
                   const bg = cell ? cellColor(cell) : undefined
-                  const isDragging = dragShelfId === cell?.id
                   const counts = cell ? (productCounts[cell.id] || { total: 0, lowStock: 0 }) : null
                   return (
                     <div key={`${x}-${y}`} className={`grid-cell ${cell ? 'occupied' : 'empty-cell'} ${wiggleId && wiggleId===cell?.id ? 'wiggling' : ''} ${dropTarget && dropTarget.x===x && dropTarget.y===y && !cell && wiggleId ? 'drag-target' : ''}`}
                       style={{
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
-                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity:(isDragging||wiggleId===cell?.id)?0.85:1} : {}),
-                        cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(dragMode?(cell?'grab':'copy'):'pointer'),
+                        ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity: wiggleId===cell?.id ? 0.85 : 1} : {}),
+                        cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(cell&&isEditor?'grab':'pointer'),
                         touchAction: cell && isEditor ? 'none' : 'auto',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
-                      draggable={dragMode && !!cell}
-                      onDragStart={cell ? () => setDragShelfId(cell.id) : undefined}
-                      onDragEnd={() => setDragShelfId(null)}
-                      onDragOver={e => { if (dragMode) e.preventDefault() }}
-                      onDrop={() => { if (dragMode && !cell) handleDrop(x, y) }}
                       onPointerDown={e => {
                         if (!cell || !isEditor) return
                         e.preventDefault()
@@ -1913,18 +1957,15 @@ export default function DepotPage() {
                           setWiggleId(cell.id)
                           navigator.vibrate?.(40)
                           try { gridRef.current?.setPointerCapture(pointerIdRef.current) } catch {}
-                        }, 480)
+                        }, 420)
                       }}
                       onPointerUp={e => {
                         clearTimeout(longPressRef.current)
                         if (wiggleId) return // handled by grid container
-                        if (!dragMode) {
-                          if (cell) setSelectedShelf(cell)
-                          else if (isEditor) setShowAddShelf(true)
-                        }
+                        if (cell) setSelectedShelf(cell)
+                        else if (isEditor) setShowAddShelf(true)
                       }}
                       onPointerCancel={() => { clearTimeout(longPressRef.current); setWiggleId(null); setDropTarget(null) }}
-                      onClick={() => { if (dragMode || wiggleId) return; if (cell) setSelectedShelf(cell); else if (isEditor) setShowAddShelf(true) }}
                       title={cell ? cell.name : `Ajouter en (${x}, ${y})`}
                     >
                       {cell ? (
@@ -1950,7 +1991,7 @@ export default function DepotPage() {
               </div>
             </div>
             <p style={{color:'var(--text3)',fontSize:12,marginTop:10,textAlign:'center'}}>
-              {dragMode?'↕️ Glisse les étagères pour les repositionner':'Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits'}
+              Case = contenu · badge = nb produits · 🔍 pour chercher dans tous les produits
             </p>
           </>
         ) : (
@@ -2037,6 +2078,7 @@ export default function DepotPage() {
           onRefresh={loadAll}
         />
       )}
+      <Lightbox/>
     </div>
   )
 }

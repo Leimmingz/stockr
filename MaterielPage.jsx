@@ -8,6 +8,56 @@ import { useConfirm } from '../hooks/useConfirm'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const AUDIO_TYPES  = ['Ampli','Enceinte','Caisson','Console / Mixeur','Processeur','Micro','Câble','Autre']
 
+// ── Photo lightbox (full-screen preview) ───────────────────────
+// Shares the same window.__stockrOpenLightbox helper as DepotPage.jsx, so any
+// <img onClick={() => openLightbox(url, alt)}> becomes zoomable.
+function openLightbox(src, alt) {
+  window.__stockrOpenLightbox?.(src, alt)
+}
+
+function Lightbox() {
+  const [state, setState] = useState(null) // { src, alt } | null
+
+  useEffect(() => {
+    window.__stockrOpenLightbox = (src, alt) => setState({ src, alt })
+    return () => { delete window.__stockrOpenLightbox }
+  }, [])
+
+  useEffect(() => {
+    if (!state) return
+    function onKey(e) { if (e.key === 'Escape') setState(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state])
+
+  if (!state) return null
+  return (
+    <div
+      onClick={() => setState(null)}
+      style={{
+        position:'fixed', inset:0, zIndex:5000, background:'rgba(0,0,0,0.9)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding:24,
+        cursor:'zoom-out',
+      }}
+    >
+      <button
+        onClick={() => setState(null)}
+        aria-label="Fermer"
+        style={{
+          position:'absolute', top:16, right:16, width:40, height:40, borderRadius:'50%',
+          background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', fontSize:20,
+          cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}
+      >✕</button>
+      <img
+        src={state.src} alt={state.alt || ''}
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', borderRadius:8, cursor:'default' }}
+      />
+    </div>
+  )
+}
+
 // ── Shelf picker (shared) ─────────────────────────────────────
 function useShelves() {
   const [shelves, setShelves] = useState([])
@@ -411,7 +461,7 @@ function UnifiedCalc({ lights, audios }) {
                 {lights.map(p => (
                   <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                     {p.image_url
-                      ? <img src={p.image_url} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+                      ? <img src={p.image_url} onClick={() => openLightbox(p.image_url, p.name)} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                       : <div style={{width:40,height:40,borderRadius:8,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>💡</div>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
@@ -430,7 +480,7 @@ function UnifiedCalc({ lights, audios }) {
                 {audios.map(a => (
                   <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--bg3)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                     {a.image_url
-                      ? <img src={a.image_url} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+                      ? <img src={a.image_url} onClick={() => openLightbox(a.image_url, a.name)} style={{width:40,height:40,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
                       : <div style={{width:40,height:40,borderRadius:8,background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🔊</div>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:600,fontSize:14,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</div>
@@ -490,7 +540,7 @@ function CatalogueView({ lights, audios, filter, search, sortBy, isEditor, onEdi
         return (
           <div key={`${k}_${item.id}`} className="card" style={{display:'flex',gap:12,alignItems:'center'}}>
             {item.image_url
-              ? <img src={item.image_url} style={{width:56,height:56,borderRadius:8,objectFit:'cover',flexShrink:0}} alt=""/>
+              ? <img src={item.image_url} onClick={() => openLightbox(item.image_url, item.name)} style={{width:56,height:56,borderRadius:8,objectFit:'cover',flexShrink:0,cursor:'zoom-in'}} alt=""/>
               : <div style={{width:56,height:56,borderRadius:8,background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{k==='light'?'💡':'🔊'}</div>
             }
             <div style={{flex:1,minWidth:0}}>
@@ -690,6 +740,7 @@ export default function MaterielPage() {
           onSave={loadAll}
         />
       )}
+      <Lightbox/>
     </div>
   )
 }
