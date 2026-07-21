@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAppUpdate } from './hooks/useAppUpdate'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
@@ -60,6 +60,18 @@ function AppShell() {
   const [tab, setTab]      = useState('depot')
   const { updateAvailable, applyUpdate } = useAppUpdate()
   const { themeIcon, cycleTheme } = useTheme()
+  const isPoppingRef = useRef(false)
+
+  // Real back-button navigation: each tab switch (away from the home tab)
+  // pushes a history entry carrying that tab's name. Pressing back then pops
+  // it and returns to the previous tab via popstate, same as a native screen
+  // stack. From the home tab with nothing pushed, back falls through to the
+  // browser/OS default (closing the app / view), which is what people expect.
+  function changeTab(next) {
+    if (next === tab) return
+    if (!isPoppingRef.current) window.history.pushState({ stockrTab: next }, '')
+    setTab(next)
+  }
 
   useEffect(() => {
     const path = window.location.pathname
@@ -71,11 +83,10 @@ function AppShell() {
       window.__pendingShelfId = m[1]
       window.history.replaceState(null, '', base + '/')
     }
-    // PWA back button: push a dummy state so Android back doesn't exit the app
-    window.history.pushState({ stockr: true }, '')
-    const handlePop = () => {
-      // Re-push so the next back press is also intercepted
-      window.history.pushState({ stockr: true }, '')
+    function handlePop(e) {
+      isPoppingRef.current = true
+      setTab(e.state?.stockrTab || 'depot')
+      isPoppingRef.current = false
     }
     window.addEventListener('popstate', handlePop)
     return () => window.removeEventListener('popstate', handlePop)
@@ -120,7 +131,7 @@ function AppShell() {
           }}>Mettre à jour</button>
         </div>
       )}
-      <BottomNav active={tab} onChange={setTab} themeIcon={themeIcon} onTheme={cycleTheme}/>
+      <BottomNav active={tab} onChange={changeTab} themeIcon={themeIcon} onTheme={cycleTheme}/>
       <div className="app-content">
         {tab === 'depot'    && <DepotPage/>}
         {tab === 'materiel' && <MaterielPage/>}
