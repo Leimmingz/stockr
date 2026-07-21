@@ -1,77 +1,58 @@
-# Stockr — Gestion de dépôt
+<div align="center">
 
-## Installation
+# 📦 Stockr
 
-```bash
-npm install
-npm run dev
-```
+### La gestion de dépôt et de matériel événementiel, simplifiée.
 
-## Configuration
+**Version 1.0.0**
 
-Le fichier `.env` contient déjà les clés Supabase.
-Remplace `REMPLACE_PAR_TA_NOUVELLE_CLE` par ta nouvelle clé Anthropic
-une fois générée sur console.anthropic.com.
+[⬇️ Voir les releases](https://github.com/Leimmingz/stockr/releases) · [🌐 Ouvrir l'application](https://leimmingz.github.io/stockr/)
 
-## Build pour GitHub Pages (APK via PWABuilder)
+</div>
 
-```bash
-npm run build
-```
+---
 
-Le dossier `dist/` est prêt à être déployé sur GitHub Pages.
+## À propos
 
-### Déploiement GitHub Pages
+Stockr est une application pensée pour les équipes techniques événementielles qui gèrent du matériel de son et de lumière : elle centralise l'inventaire, l'emplacement physique de chaque équipement, et les calculs de puissance électrique nécessaires pour préparer une installation en toute sécurité.
 
-1. Crée un repo GitHub (ex: `stockr`)
-2. Push le code
-3. Va dans Settings → Pages → Source → GitHub Actions
-4. Crée `.github/workflows/deploy.yml` :
+Fini les feuilles Excel éparpillées et les post-it collés sur les étagères — tout le dépôt tient dans ta poche.
 
-```yaml
-name: Deploy
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_ANTHROPIC_API_KEY }}
-      - uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-```
+## ✨ Fonctionnalités
 
-5. Ajoute les 3 secrets dans Settings → Secrets → Actions
-6. Une fois déployé, va sur **PWABuilder.com** avec l'URL GitHub Pages → génère l'APK
+**🏭 Dépôt visuel**
+Une grille interactive représente ton dépôt tel qu'il est vraiment. Place tes étagères, organise-les en sections, et retrouve n'importe quel produit en quelques secondes. Chaque étagère peut générer un QR code à imprimer et coller directement dessus — un scan suffit pour voir son contenu.
 
-### Installer l'APK sur Android
+**🎛️ Catalogue matériel**
+Un inventaire complet de tes projecteurs et équipements audio, avec toutes leurs caractéristiques techniques (puissance, tension, impédance, canaux DMX...). Prends une photo ou un PDF d'une fiche technique, l'application en extrait automatiquement les informations.
 
-1. Télécharge le `.apk` depuis PWABuilder
-2. Active "Sources inconnues" sur les téléphones
-3. Installe le fichier → icône Stockr sur l'écran d'accueil
+**🔢 Calculs de puissance**
+Additionne les équipements branchés sur un circuit et vérifie instantanément si l'installation reste dans les limites de sécurité électrique — avant de faire disjoncter tout un bâtiment.
 
-## Premier admin
+**👥 Travail d'équipe**
+Trois niveaux d'accès (Lecteur, Éditeur, Admin) pour que chacun voie et modifie exactement ce qu'il doit.
 
-Après inscription du premier utilisateur, mets-le admin via Supabase :
-Table Editor → profiles → change `role` = `admin` pour ce user.
-Ensuite l'admin peut gérer les rôles depuis l'app.
+**🔄 Toujours synchronisé**
+Toute l'équipe voit les mêmes informations en temps réel, sur tous les appareils.
 
-## Fonctionnalités
+**📱 Une vraie application**
+Installable sur téléphone comme n'importe quelle app — pas besoin de rouvrir un navigateur à chaque fois.
 
-- **Dépôt** : grille visuelle 12×8, étagères, sections, produits, QR codes imprimables
-- **Calcul W** : catalogue projecteurs, calcul circuit, lecture fiche PDF/photo (IA)
-- **Auth** : inscription/connexion, 3 rôles Admin/Éditeur/Lecteur
-- **Sync temps réel** via Supabase Realtime
-- **PWA** installable comme APK Android
+## 📲 Installer Stockr
+
+- **Android (APK)** : téléchargez la dernière version depuis l'onglet [Releases](https://github.com/Leimmingz/stockr/releases)
+- **Navigateur / PWA** : ouvrez [leimmingz.github.io/stockr](https://leimmingz.github.io/stockr/) et ajoutez l'app à votre écran d'accueil
+
+La version actuellement installée est toujours visible dans l'application, sous **Compte → À propos**.
+
+## 🗒️ Historique des versions
+
+| Version | Date | Notes |
+|---|---|---|
+| 1.0.0 | 2026-07-21 | Version initiale |
+
+---
+
+<div align="center">
+<sub>Développé pour un usage interne — gestion de matériel événementiel.</sub>
+</div>
