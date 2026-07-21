@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAppUpdate } from './hooks/useAppUpdate'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useAuth, AuthProvider } from './hooks/useAuth'
 import { ToastProvider } from './hooks/useToast'
 import { useTheme } from './hooks/useTheme'
@@ -59,6 +60,7 @@ function AppShell() {
   const { user, loading }  = useAuth()
   const [tab, setTab]      = useState('depot')
   const { updateAvailable, applyUpdate } = useAppUpdate()
+  const isOnline = useOnlineStatus()
   const { themeIcon, cycleTheme } = useTheme()
   const isPoppingRef = useRef(false)
 
@@ -117,9 +119,19 @@ function AppShell() {
 
   return (
     <div className="app-shell">
+      {!isOnline && (
+        <div style={{
+          position:'fixed', top:0, left:0, right:0, zIndex:9998,
+          background:'#374151', color:'#fff', padding:'8px 16px',
+          display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+          fontSize:13, fontWeight:600,
+        }}>
+          <span>📡 Hors ligne — tu vois les dernières données enregistrées sur cet appareil</span>
+        </div>
+      )}
       {updateAvailable && (
         <div style={{
-          position:'fixed', top:0, left:0, right:0, zIndex:9999,
+          position:'fixed', top: isOnline ? 0 : 36, left:0, right:0, zIndex:9999,
           background:'var(--indigo2)', color:'#fff', padding:'10px 16px',
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           fontSize:14, fontWeight:600, boxShadow:'0 2px 16px rgba(0,0,0,0.4)',
