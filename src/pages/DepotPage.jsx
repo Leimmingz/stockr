@@ -73,7 +73,66 @@ function getGridSettings() {
 async function generateQR(shelfId) {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '')
   const url = `${window.location.origin}${base}/shelf/${shelfId}`
-  return await QRCode.toDataURL(url, { width: 256, margin: 2, color: { dark: '#1E1B4B', light: '#FFFFFF' } })
+  // Error correction level 'H' tolerates up to ~30% of the code being
+  // obscured/damaged — needed here since we draw a small logo badge over
+  // the center afterwards and still want every scanner to read it reliably.
+  const qrDataUrl = await QRCode.toDataURL(url, { width: 512, margin: 2, errorCorrectionLevel: 'H', color: { dark: '#1E1B4B', light: '#FFFFFF' } })
+  return await drawQrLogoBadge(qrDataUrl)
+}
+
+// Draws a small rounded-square "S" badge (no cabinet/shelf artwork) centered
+// over a generated QR code. Kept well under ~15% of the code's area so the
+// 'H' error-correction level in generateQR() can fully compensate for it.
+function drawQrLogoBadge(qrDataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const size = img.width
+      const canvas = document.createElement('canvas')
+      canvas.width = size; canvas.height = size
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, size, size)
+
+      const badge = size * 0.20
+      const cx = size / 2, cy = size / 2
+      const r = badge * 0.22
+
+      // White rounded-square backdrop (keeps quiet zone around the badge
+      // clean so the surrounding modules stay easy to detect)
+      ctx.fillStyle = '#FFFFFF'
+      roundRect(ctx, cx - badge/2 - 6, cy - badge/2 - 6, badge + 12, badge + 12, r + 4)
+      ctx.fill()
+
+      // Gradient rounded square
+      const grad = ctx.createLinearGradient(cx - badge/2, cy - badge/2, cx + badge/2, cy + badge/2)
+      grad.addColorStop(0, '#4F46E5')
+      grad.addColorStop(1, '#7C3AED')
+      ctx.fillStyle = grad
+      roundRect(ctx, cx - badge/2, cy - badge/2, badge, badge, r)
+      ctx.fill()
+
+      // "S" letter
+      ctx.fillStyle = '#FFFFFF'
+      ctx.font = `800 ${badge * 0.62}px system-ui, -apple-system, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('S', cx, cy + badge * 0.04)
+
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = reject
+    img.src = qrDataUrl
+  })
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y,     x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x,     y + h, r)
+  ctx.arcTo(x,     y + h, x,     y,     r)
+  ctx.arcTo(x,     y,     x + w, y,     r)
+  ctx.closePath()
 }
 
 async function logMovement(action, productName, shelfName, shelfId, quantityChange = null) {
@@ -1244,8 +1303,10 @@ function QRScannerModal({ shelves, onFound, onClose }) {
   const animRef   = useRef(null)
   const jsqrRef   = useRef(null)
   const foundRef  = useRef(false)
+  const wrongCodeUntilRef = useRef(0)
   const [status,  setStatus]  = useState('Démarrage de la caméra...')
   const [camErr,  setCamErr]  = useState(null)
+  const [wrongCode, setWrongCode] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1289,17 +1350,24 @@ function QRScannerModal({ shelves, onFound, onClose }) {
       const code = jsqrRef.current?.(imageData.data, imageData.width, imageData.height)
       if (code) {
         const match = code.data.match(/\/shelf\/([a-f0-9-]{36})/i)
-        if (match) {
-          const shelf = shelves.find(s => s.id === match[1])
-          if (shelf) {
-            foundRef.current = true
-            setStatus('✅ Étagère trouvée !')
-            navigator.vibrate?.(100)
-            cancelAnimationFrame(animRef.current)
-            streamRef.current?.getTracks().forEach(t => t.stop())
-            setTimeout(() => { onFound(shelf); onClose() }, 600)
-            return
-          }
+        const shelf = match ? shelves.find(s => s.id === match[1]) : null
+        if (shelf) {
+          foundRef.current = true
+          setStatus('✅ Étagère trouvée !')
+          navigator.vibrate?.(100)
+          cancelAnimationFrame(animRef.current)
+          streamRef.current?.getTracks().forEach(t => t.stop())
+          setTimeout(() => { onFound(shelf); onClose() }, 600)
+          return
+        } else if (Date.now() > wrongCodeUntilRef.current) {
+          // Any QR code was read, but it isn't a Stockr shelf code (wrong
+          // app, or a shelf that's since been deleted) — say so clearly
+          // instead of silently ignoring it, then resume scanning.
+          navigator.vibrate?.(200)
+          setWrongCode(true)
+          setStatus("❌ Ce QR code n'est pas un code Stockr")
+          wrongCodeUntilRef.current = Date.now() + 1800
+          setTimeout(() => { setWrongCode(false); if (!foundRef.current) setStatus('Pointez vers un QR code Stockr...') }, 1800)
         }
       }
     }
@@ -1325,9 +1393,9 @@ function QRScannerModal({ shelves, onFound, onClose }) {
             <video ref={videoRef} playsInline muted style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
             <canvas ref={canvasRef} style={{display:'none'}}/>
             <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
-              <div style={{width:200,height:200,border:'3px solid rgba(255,255,255,0.9)',borderRadius:16,boxShadow:'0 0 0 9999px rgba(0,0,0,0.4)'}}/>
+              <div style={{width:200,height:200,border:`3px solid ${wrongCode?'rgba(239,68,68,0.9)':'rgba(255,255,255,0.9)'}`,borderRadius:16,boxShadow:'0 0 0 9999px rgba(0,0,0,0.4)'}}/>
             </div>
-            <div style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(0,0,0,0.65)',color:'#fff',fontSize:13,fontWeight:500,padding:'10px 16px',textAlign:'center'}}>
+            <div style={{position:'absolute',bottom:0,left:0,right:0,background: wrongCode ? 'rgba(153,27,27,0.85)' : 'rgba(0,0,0,0.65)',color:'#fff',fontSize:13,fontWeight:600,padding:'10px 16px',textAlign:'center'}}>
               {status}
             </div>
           </div>
