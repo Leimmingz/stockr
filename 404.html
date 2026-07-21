@@ -4,15 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#4F46E5" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Stockr" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="icon" type="image/svg+xml" href="/stockr/logo.svg" />
     <title>Stockr</title>
+    <!--
+      GitHub Pages has no real server-side routing: any URL that isn't a
+      physical file (e.g. /stockr/shelf/<uuid>, reached via a QR code) returns
+      this 404.html. We redirect to the real index.html while preserving the
+      original path in the query string, so the SPA can restore it on load
+      (see the matching decode script in index.html / main.jsx).
+      https://github.com/rafgraph/spa-github-pages
+    -->
+    <script>
+      (function () {
+        var base = '/stockr'
+        var path = location.pathname.slice(base.length) || '/'
+        var redirect = base + '/?redirect=' + encodeURIComponent(path + location.search + location.hash)
+        location.replace(redirect)
+      })()
+    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <noscript>Active JavaScript pour utiliser Stockr.</noscript>
   </body>
 </html>
