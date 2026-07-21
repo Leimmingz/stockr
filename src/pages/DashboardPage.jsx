@@ -85,13 +85,13 @@ export default function DashboardPage() {
                   <div key={m.id} style={{display:'flex',gap:12,alignItems:'center',padding:'10px 14px',background:'var(--bg2)',borderRadius:'var(--radius)',border:'1px solid var(--border)'}}>
                     <span style={{fontSize:20,flexShrink:0}}>{ACTION_ICON[m.action] || '📦'}</span>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.product_name}</div>
+                      <div style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.details?.product_name || '—'}</div>
                       <div style={{fontSize:12,color:'var(--text2)',marginTop:1}}>
                         {ACTION_LABEL[m.action] || m.action}
-                        {m.shelf_name && <span style={{color:'var(--text3)'}}> · {m.shelf_name}</span>}
-                        {m.quantity_change != null && m.action !== 'delete' && m.action !== 'import' && (
-                          <span style={{marginLeft:4,color: m.quantity_change > 0 ? 'var(--green)' : 'var(--red)',fontWeight:700}}>
-                            {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}
+                        {m.details?.shelf_name && <span style={{color:'var(--text3)'}}> · {m.details.shelf_name}</span>}
+                        {m.details?.quantity_change != null && m.action !== 'delete' && m.action !== 'import' && (
+                          <span style={{marginLeft:4,color: m.details.quantity_change > 0 ? 'var(--green)' : 'var(--red)',fontWeight:700}}>
+                            {m.details.quantity_change > 0 ? '+' : ''}{m.details.quantity_change}
                           </span>
                         )}
                       </div>

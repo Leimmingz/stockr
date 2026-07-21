@@ -137,14 +137,22 @@ function roundRect(ctx, x, y, w, h, r) {
 
 async function logMovement(action, productName, shelfName, shelfId, quantityChange = null) {
   try {
-    await supabase.from('product_movements').insert({
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('product_movements').insert({
       action,
-      product_name: String(productName || '').slice(0, 255),
-      shelf_name: String(shelfName || '').slice(0, 255),
       shelf_id: shelfId,
-      quantity_change: quantityChange,
+      user_id: user?.id || null,
+      username: user?.user_metadata?.username || user?.email || null,
+      details: {
+        product_name: String(productName || '').slice(0, 255),
+        shelf_name: String(shelfName || '').slice(0, 255),
+        quantity_change: quantityChange,
+      },
     })
-  } catch (_) {} // non-blocking — historique best-effort
+    if (error) console.warn('logMovement failed:', error.message, { action, productName, shelfName, shelfId })
+  } catch (err) {
+    console.warn('logMovement threw:', err)
+  } // non-blocking — historique best-effort, never breaks the calling action
 }
 
 // Escape HTML to prevent XSS in print windows
@@ -460,8 +468,11 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
 
   async function openHistory() {
     setShowHist(true); setHistLoading(true)
-    const { data } = await supabase.from('product_movements').select('*')
-      .eq('product_name', product.name).order('created_at', { ascending: false }).limit(30)
+    // product_name lives inside the jsonb `details` column, not as its own
+    // column — filter with the ->> JSON text-extraction operator.
+    const { data, error } = await supabase.from('product_movements').select('*')
+      .eq('details->>product_name', product.name).order('created_at', { ascending: false }).limit(30)
+    if (error) console.warn('openHistory failed:', error.message)
     setProdHistory(data || []); setHistLoading(false)
   }
 
@@ -569,13 +580,13 @@ function ProductCard({ product, sections, isEditor, shelfName, onRefresh }) {
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600}}>
                         {{add:'Ajouté',delete:'Supprimé',edit:'Modifié',import:'Importé'}[m.action] || m.action}
-                        {m.quantity_change != null && m.action !== 'delete' && (
-                          <span style={{marginLeft:6,color: m.quantity_change > 0 ? 'var(--green)' : 'var(--red)',fontWeight:700}}>
-                            {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}
+                        {m.details?.quantity_change != null && m.action !== 'delete' && (
+                          <span style={{marginLeft:6,color: m.details.quantity_change > 0 ? 'var(--green)' : 'var(--red)',fontWeight:700}}>
+                            {m.details.quantity_change > 0 ? '+' : ''}{m.details.quantity_change}
                           </span>
                         )}
                       </div>
-                      {m.shelf_name && <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>{m.shelf_name}</div>}
+                      {m.details?.shelf_name && <div style={{fontSize:12,color:'var(--text3)',marginTop:2}}>{m.details.shelf_name}</div>}
                       <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>{new Date(m.created_at).toLocaleString('fr-FR')}</div>
                     </div>
                   </div>
@@ -971,6 +982,22 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
     setQrData(d); setShowQR(true)
   }
 
+  const [regenerating, setRegenerating] = useState(false)
+  async function regenerateQR() {
+    setRegenerating(true)
+    try {
+      const d = await generateQR(shelf.id)
+      const blob = await fetch(d).then(r => r.blob())
+      const qrUrl = await compressAndUpload(new File([blob], 'qr.png', { type: 'image/png' }), 'qr-codes', `qr_${shelf.id}_${Date.now()}`)
+      const { error } = await supabase.from('shelves').update({ qr_code_url: qrUrl }).eq('id', shelf.id)
+      if (error) throw error
+      shelf.qr_code_url = qrUrl
+      setQrData(d)
+      toast('QR code régénéré avec le logo', 'success')
+    } catch(err) { toast('Erreur : ' + err.message, 'error') }
+    finally { setRegenerating(false) }
+  }
+
   function printQR() {
     const win = window.open('', '_blank')
     const doc = win.document
@@ -1018,8 +1045,11 @@ function ShelfDetailModal({ shelf, onClose, onEdit, onDelete, isEditor }) {
               <img src={qrData} style={{width:200,height:200,borderRadius:12}} alt="QR"/>
               <p style={{color:'var(--text2)',fontSize:13,marginTop:8}}>Scanner = ouvre la fiche directement</p>
             </div>
-            <div className="form-actions">
+            <div className="form-actions" style={{flexWrap:'wrap'}}>
               <button className="btn btn-secondary" onClick={() => setShowQR(false)}>Retour</button>
+              <button className="btn btn-secondary" onClick={regenerateQR} disabled={regenerating}>
+                {regenerating ? <span className="spinner" style={{width:14,height:14}}/> : '🔄 Régénérer'}
+              </button>
               <button className="btn btn-primary" onClick={printQR}>🖨️ Imprimer</button>
             </div>
           </>
@@ -1567,11 +1597,12 @@ function HistoryModal({ onClose }) {
               <div key={m.id} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'10px 12px',background:'var(--bg3)',borderRadius:8,border:'1px solid var(--border)'}}>
                 <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{icons[m.action] || '📦'}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.product_name}</div>
+                  <div style={{fontSize:14,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.details?.product_name || '—'}</div>
                   <div style={{fontSize:12,color:'var(--text2)',marginTop:2}}>
                     {labels[m.action] || m.action}
-                    {m.shelf_name && <span style={{color:'var(--text3)'}}> · {m.shelf_name}</span>}
-                    {m.quantity_change != null && m.action !== 'import' && <span style={{color:'var(--text3)'}}> · {m.quantity_change > 0 ? '+' : ''}{m.quantity_change}</span>}
+                    {m.details?.shelf_name && <span style={{color:'var(--text3)'}}> · {m.details.shelf_name}</span>}
+                    {m.details?.quantity_change != null && m.action !== 'import' && <span style={{color:'var(--text3)'}}> · {m.details.quantity_change > 0 ? '+' : ''}{m.details.quantity_change}</span>}
+                    {m.username && <span style={{color:'var(--text3)'}}> · {m.username}</span>}
                   </div>
                   <div style={{fontSize:11,color:'var(--text3)',marginTop:3}}>{new Date(m.created_at).toLocaleString('fr-FR')}</div>
                 </div>
@@ -1738,6 +1769,7 @@ export default function DepotPage() {
   const longPressRef  = useRef(null)
   const gridRef       = useRef(null)
   const pointerIdRef  = useRef(null)
+  const pointerStartRef = useRef(null)
   const [showRoomModal,    setShowRoomModal]    = useState(false)
   const [editRoom,         setEditRoom]         = useState(null)
   const [gridZoom,         setGridZoom]         = useState(() => {
@@ -1986,7 +2018,7 @@ export default function DepotPage() {
                 })()}
 
                 <div ref={gridRef}
-                  style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content',touchAction:'none'}}
+                  style={{display:'grid',gridTemplateColumns:`repeat(${gridCols}, ${cellSize}px)`,gridTemplateRows:`repeat(${gridRows}, ${cellSize}px)`,gap:4,background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',padding:10,width:'fit-content',touchAction: wiggleId ? 'none' : 'pan-x'}}
                   onPointerMove={e => {
                     if (!wiggleId) return
                     const pos = getCellCoords(e.clientX, e.clientY)
@@ -2013,19 +2045,28 @@ export default function DepotPage() {
                         gridColumnStart:x+1,gridRowStart:y+1,gridColumnEnd:`span ${w}`,gridRowEnd:`span ${h}`,
                         ...(cell ? {background:bg,border:`1px solid ${bg}`,opacity: wiggleId===cell?.id ? 0.85 : 1} : {}),
                         cursor:wiggleId?(cell&&wiggleId!==cell?.id?'default':'grabbing'):(cell&&isEditor?'grab':'pointer'),
-                        touchAction: cell && isEditor ? 'none' : 'auto',
+                        touchAction: wiggleId ? 'none' : 'pan-x',
                         fontSize:cellSize<44?9:11,display:'flex',flexDirection:'column',alignItems:'center',
                         justifyContent:'center',textAlign:'center',overflow:'hidden',position:'relative',
                       }}
                       onPointerDown={e => {
                         if (!cell || !isEditor) return
-                        e.preventDefault()
                         pointerIdRef.current = e.pointerId
+                        pointerStartRef.current = { x: e.clientX, y: e.clientY }
                         longPressRef.current = setTimeout(() => {
                           setWiggleId(cell.id)
                           navigator.vibrate?.(40)
                           try { gridRef.current?.setPointerCapture(pointerIdRef.current) } catch {}
                         }, 420)
+                      }}
+                      onPointerMove={e => {
+                        if (!longPressRef.current || wiggleId) return
+                        // Cancel the long-press if the finger moved enough to
+                        // look like a scroll gesture rather than a hold-still
+                        const start = pointerStartRef.current
+                        if (start && (Math.abs(e.clientX - start.x) > 10 || Math.abs(e.clientY - start.y) > 10)) {
+                          clearTimeout(longPressRef.current)
+                        }
                       }}
                       onPointerUp={e => {
                         clearTimeout(longPressRef.current)
